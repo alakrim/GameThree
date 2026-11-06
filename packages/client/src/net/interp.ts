@@ -26,6 +26,9 @@ export class Interpolator {
   /** Most recent authoritative snapshot (used for prediction reconciliation). */
   get latest(): Snapshot | null { return this.buf.length ? this.buf[this.buf.length - 1]!.s : null; }
 
+  /** Server time (ms) currently being rendered — events are released when this passes their tick. */
+  renderTime(now: number): number { return this.offset === null ? -Infinity : now - this.offset - this.delayMs; }
+
   sample(now: number): Map<number, InterpEntity> {
     const out = new Map<number, InterpEntity>();
     if (!this.buf.length || this.offset === null) return out;

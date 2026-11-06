@@ -38,6 +38,26 @@ Third-person over-the-shoulder camera with first-person zoom (`render/camera.ts`
 offset, boom shortened by terrain collision. Movement is direct analog input relative to the camera
 (WASD / left virtual stick); looking is mouse (pointer lock) or right-thumb drag. Abilities will aim from the camera ray.
 
+## Combat model (server-authoritative, twist-agnostic)
+
+- **Data-driven kits** (`shared/src/heroes.ts`): each hero = stats + basic attack + Q/E/R `AbilityDef`s. The sim
+  interprets five generic ability kinds — `dash`, `cone`, `projectile`, `groundAoe`, `selfAoe` — with optional damage,
+  stun, slow, ally haste and "stop on first hit". New heroes are mostly data.
+- **Actions**: `act {slot, aim, tx, ty}` is validated server-side (alive, not stunned/busy, cooldown ready, finite aim,
+  ground target clamped to range), then runs a wind-up (telegraph) before resolving. Stuns interrupt wind-ups.
+- **Hit detection**: cones test range + half-angle; projectiles are swept per tick (no tunnelling) and hit the first
+  enemy; ground AoEs detonate after a delay with a broadcast telegraph.
+- **Structures**: 2 towers per lane per team + a Heartstone per fort. Towers prioritise minions, then heroes, and fire
+  homing bolts. Inner towers are invulnerable until their lane's outer tower falls; the Heartstone until an inner
+  tower falls. Destroying a Heartstone wins; the match resets after 12 s.
+- **Minions** aggro the nearest enemy (preferring minions/structures), leash back to their lane.
+- **Progression**: shared XP for nearby kills, levels 1–12 scaling HP/damage, respawn timer by level, fort regen.
+- **Bots** (`shared/src/bot.ts`) fill empty slots to 3v3. They issue the same commands as players (no special access):
+  follow their lane behind allied minions, avoid diving towers, use abilities, retreat to heal.
+- **Events** (`GameEvent` in snapshots): `act`, `hit`, `die`, `lvl`, `tele`, `aoe`, `pop`, `spawn`, `win`, `reset`.
+  The client releases each event when interpolated render time reaches its tick, so VFX/SFX line up with motion;
+  the local player's own actions play instantly on input.
+
 ## Netcode
 
 - **Input:** the client sends one `input {seq, mx, my}` per 30 Hz tick (idle inputs suppressed after 3). The server
@@ -49,6 +69,9 @@ offset, boom shortened by terrain collision. Movement is direct analog input rel
   Server/client parity is unit-tested (identical positions after 90 ticks).
 - **Remote entities:** snapshots at 15 Hz, rendered 2 intervals in the past with interpolation (`net/interp.ts`).
 - `LocalTransport` runs the same `World` in-page so offline practice and online play share one code path.
+
+- Prediction pauses while the server drives the hero (stunned, dashing, dead) and uses the server's current
+  movement multiplier (slows/hastes/attack wind-up) so corrections stay small.
 
 Planned (M3):
 1. Lag-compensated hit detection for camera-aimed abilities (server rewinds hitboxes by the shooter's RTT).

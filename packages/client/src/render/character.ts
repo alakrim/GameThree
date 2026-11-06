@@ -25,7 +25,9 @@ class Part extends THREE.Object3D {
 }
 function part(geo: THREE.BufferGeometry, mat: THREE.Material, y = 0): Part { const p = new Part(geo, mat); p.position.y = y; return p; }
 
-export interface CharacterOpts { team: 0 | 1; role: 'hero' | 'minion'; scale?: number }
+export interface CharacterOpts { team: 0 | 1; role: 'hero' | 'minion'; heroId?: string; scale?: number }
+
+export type ActionAnim = 'attack' | 'shoot' | 'cast' | 'slam';
 
 export class Character {
   readonly root = new THREE.Group();
@@ -38,23 +40,31 @@ export class Character {
   private phase = Math.random() * 6;
   private breathe = Math.random() * 6;
   private speedSm = 0;
+  private act: { kind: ActionAnim; t: number; dur: number } | null = null;
+  private flinch = 0;
+  private stunned = false;
+  private deadT = -1; // >= 0 while dead (seconds since death)
+  private crystal: THREE.Mesh | null = null;
 
   constructor(readonly opts: CharacterOpts) {
     const { team, role } = opts;
     const steel = Mats.steel(), dark = Mats.darkSteel(), leather = Mats.leather();
     const cloth = Mats.cloth(team, role === 'hero' ? teamBanner(team) : (team === 0 ? 0x6b4a32 : 0x3e4f5c));
     this.root.add(this.hips);
+    this.root.rotation.order = 'YXZ'; // death topple is relative to facing
     this.hips.position.y = 0.98;
 
-    // Pelvis: mail skirt + belt.
-    this.hips.add(part(new THREE.CylinderGeometry(0.2, 0.27, 0.36, 12, 1, true).translate(0, -0.14, 0), dark));
+    const mage = opts.heroId === 'sigrun';
+    // Pelvis: mail skirt (warriors) or long wool robe (casters) + belt.
+    if (mage) this.hips.add(part(new THREE.CylinderGeometry(0.2, 0.36, 0.95, 14, 1, true).translate(0, -0.42, 0), cloth));
+    else this.hips.add(part(new THREE.CylinderGeometry(0.2, 0.27, 0.36, 12, 1, true).translate(0, -0.14, 0), dark));
     this.hips.add(part(new THREE.TorusGeometry(0.205, 0.035, 6, 16).rotateX(Math.PI / 2).translate(0, 0.04, 0), leather));
 
     // Torso.
     this.hips.add(this.spine);
     this.spine.position.y = 0.05;
     const chest = new THREE.LatheGeometry([[0.17, 0], [0.2, 0.14], [0.235, 0.32], [0.225, 0.46], [0.13, 0.55]].map(([x, y]) => new THREE.Vector2(x!, y!)), 14);
-    const chestMesh = part(chest, role === 'hero' ? steel : leather);
+    const chestMesh = part(chest, role === 'hero' && !mage ? steel : leather);
     chestMesh.scale.set(1, 1, 0.78);
     this.spine.add(chestMesh);
     // Tabard front/back in clan colours.
@@ -69,13 +79,19 @@ export class Character {
     // Head + helm.
     this.spine.add(this.head);
     this.head.position.y = 0.62;
-    const helm = part(new THREE.SphereGeometry(0.125, 16, 12).scale(1, 1.18, 1.05).translate(0, 0.1, 0), steel);
-    this.head.add(helm);
-    const visor = part(new THREE.BoxGeometry(0.17, 0.025, 0.04).translate(0, 0.1, 0.12), new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1 }));
-    this.head.add(visor);
-    this.head.add(part(new THREE.BoxGeometry(0.03, 0.12, 0.03).translate(0, 0.05, 0.135), steel)); // nasal guard
-    if (role === 'hero') this.addAntlers(dark);
-    else this.head.add(part(new THREE.TorusGeometry(0.15, 0.02, 6, 16).rotateX(Math.PI / 2).translate(0, 0.12, 0), dark)); // kettle-helm brim
+    if (mage) {
+      // Fur hood with a shadowed face opening — the caster silhouette.
+      this.head.add(part(new THREE.SphereGeometry(0.15, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1, 1.25, 1.1).translate(0, 0.08, -0.01), Mats.fur()));
+      this.head.add(part(new THREE.ConeGeometry(0.13, 0.22, 12, 1, true).rotateX(Math.PI).translate(0, 0.0, 0), Mats.fur()));
+      this.head.add(part(new THREE.SphereGeometry(0.1, 12, 8).scale(1, 1.1, 0.6).translate(0, 0.08, 0.07), shadowMat()));
+    } else {
+      const helm = part(new THREE.SphereGeometry(0.125, 16, 12).scale(1, 1.18, 1.05).translate(0, 0.1, 0), steel);
+      this.head.add(helm);
+      this.head.add(part(new THREE.BoxGeometry(0.17, 0.025, 0.04).translate(0, 0.1, 0.12), shadowMat()));
+      this.head.add(part(new THREE.BoxGeometry(0.03, 0.12, 0.03).translate(0, 0.05, 0.135), steel)); // nasal guard
+    }
+    if (role === 'hero' && !mage) this.addAntlers(dark);
+    else if (role !== 'hero') this.head.add(part(new THREE.TorusGeometry(0.15, 0.02, 6, 16).rotateX(Math.PI / 2).translate(0, 0.12, 0), dark)); // kettle-helm brim
 
     // Arms (shoulder pivots on the spine).
     this.armL = this.limb(-1, steel, leather, true);
@@ -85,7 +101,18 @@ export class Character {
     this.legR = this.limb(1, steel, leather, false);
 
     // Equipment.
-    if (weapons) {
+    if (mage) {
+      // Rune staff topped with a glowing ice crystal (signature shape, Art Bible §7).
+      const staff = new THREE.Group();
+      staff.add(new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 1.75, 7).translate(0, 0.35, 0), Mats.timber()));
+      const prongs = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.012, 5, 10, Math.PI * 1.4).rotateZ(-Math.PI * 0.2).translate(0, 1.27, 0), Mats.darkSteel());
+      this.crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.075, 0).scale(1, 1.8, 1).translate(0, 1.3, 0),
+        new THREE.MeshStandardMaterial({ color: 0x9fdcff, emissive: 0x4fb4ff, emissiveIntensity: 2.6, roughness: 0.15, metalness: 0.1 }));
+      staff.add(prongs, this.crystal);
+      staff.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+      staff.rotation.set(Math.PI / 2, 0, 0); staff.position.set(0, -0.02, 0.02);
+      this.armR.end.add(staff);
+    } else if (weapons) {
       if (role === 'hero') {
         const sword = cloneModel(weapons.sword);
         sword.scale.setScalar(0.8); sword.rotation.set(Math.PI / 2, 0, 0); sword.position.set(0, -0.02, 0.02);
@@ -195,8 +222,20 @@ transformed.y += k * k * uS * 0.25;`);
     this.spine.add(cape);
   }
 
-  /** Drive procedural locomotion from actual ground speed (m/s). */
+  /** Trigger an upper-body action animation (attack swing, ranged shot, spell cast, ground slam). */
+  play(kind: ActionAnim, dur = 0.55) { if (this.deadT < 0) this.act = { kind, t: 0, dur }; }
+  hit() { this.flinch = 1; }
+  setStunned(v: boolean) { this.stunned = v; }
+  setDead(dead: boolean) {
+    if (dead && this.deadT < 0) { this.deadT = 0; this.act = null; }
+    if (!dead) this.deadT = -1;
+  }
+  get isDead() { return this.deadT >= 0; }
+
+  /** Drive procedural locomotion from actual ground speed (m/s), then layer actions/reactions on top. */
   update(speed: number, dt: number) {
+    if (this.deadT >= 0) { this.updateDeath(dt); return; }
+    this.root.rotation.x = 0; this.root.position.y = 0;
     this.speedSm += (speed - this.speedSm) * Math.min(1, dt * 10);
     const k = Math.min(1, this.speedSm / 5.6);
     this.phase += dt * (this.speedSm / 1.7) * Math.PI; // ~1.7 m per stride
@@ -221,11 +260,59 @@ transformed.y += k * k * uS * 0.25;`);
     this.hips.rotation.y = -s * 0.08 * k;
     this.head.rotation.x = -0.1 * k;
     this.capeTime.value += dt; this.capeSpeed.value = k;
+    if (this.crystal) this.crystal.rotation.y += dt * 1.5;
+
+    // Hit flinch.
+    if (this.flinch > 0) { this.spine.rotation.x -= this.flinch * 0.28; this.head.rotation.x -= this.flinch * 0.2; this.flinch = Math.max(0, this.flinch - dt * 6); }
+    // Stun: slumped, swaying.
+    if (this.stunned) { this.spine.rotation.x = 0.35; this.head.rotation.x = 0.4; this.spine.rotation.z = Math.sin(this.breathe * 4) * 0.08; }
+    else this.spine.rotation.z = 0;
+    // Action overlay.
+    const a = this.act;
+    if (a) {
+      a.t += dt;
+      const p = Math.min(1, a.t / a.dur);
+      const ease = (x: number) => x * x * (3 - 2 * x);
+      if (a.kind === 'attack') {
+        // Wind up high and back, strike down across the body, recover.
+        const up = p < 0.45 ? ease(p / 0.45) : 1 - ease(Math.min(1, (p - 0.45) / 0.2));
+        const strike = p < 0.45 ? 0 : p < 0.65 ? ease((p - 0.45) / 0.2) : 1 - ease((p - 0.65) / 0.35);
+        this.armR.root.rotation.x = -2.6 * up + 0.9 * strike;
+        this.armR.root.rotation.z = 0.5 * up - 0.35 * strike;
+        this.armR.lower.rotation.x = -0.9 * up - 0.2 * strike;
+        this.spine.rotation.y = 0.45 * up - 0.6 * strike;
+        this.spine.rotation.x += 0.15 * strike;
+        this.armL.root.rotation.x = -0.6; this.armL.lower.rotation.x = -1.1; // shield up
+      } else if (a.kind === 'shoot' || a.kind === 'cast') {
+        const raise = p < 0.35 ? ease(p / 0.35) : 1 - ease((p - 0.35) / 0.65);
+        this.armR.root.rotation.x = -1.6 * raise; this.armR.lower.rotation.x = -0.3 * raise;
+        if (a.kind === 'cast') { this.armL.root.rotation.x = -1.4 * raise; this.armL.lower.rotation.x = -0.2 * raise; this.armL.root.rotation.z = -0.3 * raise; }
+        this.spine.rotation.y = -0.25 * raise;
+      } else if (a.kind === 'slam') {
+        const up = p < 0.5 ? ease(p / 0.5) : 1 - ease((p - 0.5) / 0.5);
+        this.armR.root.rotation.x = -2.9 * up; this.armL.root.rotation.x = -2.9 * up;
+        this.spine.rotation.x = -0.25 * up + (p > 0.5 ? 0.3 * (1 - p) : 0);
+      }
+      if (p >= 1) this.act = null;
+    }
+  }
+
+  private updateDeath(dt: number) {
+    this.deadT += dt;
+    const p = Math.min(1, this.deadT / 0.7);
+    const e = 1 - (1 - p) * (1 - p);
+    this.root.rotation.x = -e * 1.45;           // topple backwards
+    this.root.position.y = -Math.max(0, this.deadT - 2.5) * 0.25; // sink into the ground after a while
+    this.legL.lower.rotation.x = 0.4 * e; this.legR.lower.rotation.x = 0.2 * e;
+    this.armL.root.rotation.z = -0.8 * e; this.armR.root.rotation.z = 0.8 * e;
   }
 
   setFirstPerson(fp: boolean) { this.root.visible = !fp; }
   setVisible(v: boolean) { this.root.visible = v; }
 }
+
+let shadow: THREE.MeshStandardMaterial | null = null;
+function shadowMat() { return (shadow ??= new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 1 })); }
 
 export const TEAM_RIM = { 0: PALETTE.dawn, 1: PALETTE.dusk } as const;
 export { teamColor };

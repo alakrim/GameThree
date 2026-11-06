@@ -1,30 +1,34 @@
-import { World, SNAPSHOT_EVERY, type ClientMsg, type ServerMsg, type Team, PROTOCOL_VERSION } from '@lumen/shared';
+import { World, SNAPSHOT_EVERY, HEROES, DEFAULT_HERO, type ClientMsg, type ServerMsg, type Team, PROTOCOL_VERSION } from '@lumen/shared';
 
 export interface Peer { id: string; send(m: ServerMsg): void }
 
 const MAX_PLAYERS = 10;
 const MAX_CMDS_PER_TICK = 4; // per-player rate limit (anti-spam / anti-flood)
+/** Empty slots are filled with bots so every match is 3v3 (humans replace bots as they join). */
+const TEAM_SIZE = Number(process.env.TEAM_SIZE ?? 3);
 
 /** One match. Transport-agnostic so it is unit-testable without sockets. */
 export class Room {
   readonly world: World;
   private peers = new Map<string, { peer: Peer; team: Team; cmdsThisTick: number }>();
 
-  constructor(readonly seed = 1337) { this.world = new World({ seed }); }
+  constructor(readonly seed = 1337, teamSize = TEAM_SIZE) { this.world = new World({ seed, botsPerTeam: teamSize }); this.world.fillBots(); }
 
   get size() { return this.peers.size; }
 
-  join(peer: Peer): boolean {
+  join(peer: Peer, heroId = DEFAULT_HERO): boolean {
     if (this.peers.size >= MAX_PLAYERS) { peer.send({ op: 'error', reason: 'room full' }); return false; }
+    if (!HEROES[heroId]) heroId = DEFAULT_HERO;
     const dawn = [...this.peers.values()].filter((p) => p.team === 0).length;
     const team: Team = dawn <= this.peers.size - dawn ? 0 : 1;
     this.peers.set(peer.id, { peer, team, cmdsThisTick: 0 });
-    this.world.spawnHero(peer.id, team);
+    this.world.spawnHero(peer.id, team, heroId);
+    this.world.fillBots();
     peer.send({ op: 'welcome', v: PROTOCOL_VERSION, playerId: peer.id, team, seed: this.seed, tick: this.world.tick });
     return true;
   }
 
-  leave(id: string) { this.peers.delete(id); this.world.removeOwner(id); }
+  leave(id: string) { this.peers.delete(id); this.world.removeOwner(id); this.world.fillBots(); }
 
   handle(id: string, msg: ClientMsg) {
     const p = this.peers.get(id);

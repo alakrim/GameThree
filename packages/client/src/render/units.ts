@@ -14,8 +14,8 @@ export class UnitView {
   private yaw = 0;
   private last = new THREE.Vector3();
   private speed = 0;
-  constructor(readonly id: number, readonly team: 0 | 1, readonly isHero: boolean, ally: boolean, readonly isLocal: boolean) {
-    this.character = new Character({ team, role: isHero ? 'hero' : 'minion' });
+  constructor(readonly id: number, readonly team: 0 | 1, readonly isHero: boolean, ally: boolean, readonly isLocal: boolean, readonly heroId?: string) {
+    this.character = new Character({ team, role: isHero ? 'hero' : 'minion', heroId });
     this.root.add(this.character.root);
     const w = isHero ? 1.0 : 0.6, h = isHero ? 0.09 : 0.06;
     const bg = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.04, h + 0.04), new THREE.MeshBasicMaterial({ color: 0x0b0b0e, depthTest: false, transparent: true, opacity: 0.75 }));
@@ -43,9 +43,10 @@ export class UnitView {
     this.character.root.rotation.y = this.yaw;
     this.character.update(this.speed, dt);
     this.fill.scale.x = Math.max(0.001, hpFrac);
+    const dist = cam.position.distanceTo(p);
+    this.root.visible = dist < 110; // beyond the fog: skip drawing entirely
     if (!this.isLocal) {
-      const dist = cam.position.distanceTo(p);
-      this.bar.visible = dist < BAR_RANGE;
+      this.bar.visible = dist < BAR_RANGE && !this.character.isDead;
       this.bar.quaternion.copy(cam.quaternion);
       const s = THREE.MathUtils.clamp(dist / 14, 0.6, 1.8); this.bar.scale.setScalar(s);
     }

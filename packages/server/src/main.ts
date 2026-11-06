@@ -14,7 +14,7 @@ wss.on('connection', (ws: WebSocket) => {
     const msg = decodeClient(data.toString());
     if (!msg) return;
     if (msg.op === 'hello' && !joined) {
-      joined = room.join({ id, send: (m) => ws.readyState === ws.OPEN && ws.send(encode(m)) });
+      joined = room.join({ id, send: (m) => ws.readyState === ws.OPEN && ws.send(encode(m)) }, msg.hero);
       if (!joined) ws.close();
       else console.log(`[room] ${msg.name} (${id}) joined — ${room.size} players`);
       return;

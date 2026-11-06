@@ -21,17 +21,19 @@ export class LocalTransport implements Transport {
   onSnapshot?: (s: Snapshot) => void;
   onStatus?: (s: string) => void;
   rtt = 0;
-  private world = new World({ seed: 1337 });
+  private world = new World({ seed: 1337, botsPerTeam: 3 });
   private acc = 0;
   private started = false;
+  constructor(private hero: string) {}
 
   send(cmd: Command) { this.world.queue('local', cmd); }
 
   update(dt: number) {
     if (!this.started) {
       this.started = true;
-      this.world.spawnHero('local', 0);
-      this.onStatus?.('offline practice');
+      this.world.spawnHero('local', 0, this.hero);
+      this.world.fillBots();
+      this.onStatus?.('practice vs bots');
       this.onWelcome?.({ playerId: 'local', team: 0, seed: 1337 });
     }
     this.acc = Math.min(this.acc + dt, 0.25);
@@ -54,9 +56,9 @@ export class WsTransport implements Transport {
   private seq = 0;
   private pingTimer = 0;
 
-  constructor(url: string) {
+  constructor(url: string, hero: string) {
     this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this.onStatus?.('connected'); this.raw({ op: 'hello', v: PROTOCOL_VERSION, name: 'player' }); };
+    this.ws.onopen = () => { this.onStatus?.('connected'); this.raw({ op: 'hello', v: PROTOCOL_VERSION, name: 'player', hero }); };
     this.ws.onclose = () => this.onStatus?.('disconnected');
     this.ws.onerror = () => this.onStatus?.('connection error');
     this.ws.onmessage = (ev) => {

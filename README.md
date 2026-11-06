@@ -17,8 +17,10 @@ npm run dev:server     # authoritative server on ws://localhost:8787
 
 URL options: `?quality=low|medium|high`, `?server=ws://host:port`.
 
-Controls — desktop: click to capture the mouse, WASD move, mouse look, wheel zoom (all the way in = first person), V toggles 1st/3rd person, Esc releases.
-Touch: left thumb = virtual stick, right thumb = look, VIEW button toggles 1st/3rd person.
+Controls — desktop: click to capture the mouse, WASD move, mouse look, LMB attack (hold to keep swinging), Q/E/R abilities (ground-targeted ones: hold to aim, release to cast), wheel zoom (all the way in = first person), V toggles 1st/3rd person, Esc releases.
+Touch: left thumb = virtual stick, right thumb = look, attack/ability buttons on the right, VIEW toggles 1st/3rd person.
+
+You play a 3v3 against bots offline; online, humans replace bots as they join. URL `?hero=hrodvar|sigrun` skips the picker.
 
 Assets: CC0 textures/models/HDRI are committed under `packages/client/public/assets` (see `CREDITS.md` there).
 Regenerate with `node tools/assets/fetch-assets.mjs [--force]`.
@@ -35,6 +37,7 @@ node qa/smoke.mjs      # browser smoke test (needs dev client + server running a
 ## Docs
 
 - `docs/design/TWIST_CONCEPTS.md` — the four core-mechanic candidates
+- `docs/design/HEROES.md` — 15-hero roster, launch slice, balance framework
 - `docs/art/ART_BIBLE.md` — art bible
 - `docs/tech/ARCHITECTURE.md` — architecture, netcode, rendering, budgets
 - `docs/ROADMAP.md` — milestones

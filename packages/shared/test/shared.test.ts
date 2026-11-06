@@ -52,7 +52,7 @@ describe('NavGrid', () => {
 
 describe('World', () => {
   const run = () => {
-    const w = new World({ seed: 7 });
+    const w = new World({ seed: 7, structures: false });
     w.spawnHero('p1', 0); w.spawnHero('p2', 1);
     for (let t = 0; t < TICK_RATE * 20; t++) {
       if (t === 3) w.queue('p1', { type: 'move', x: 0, y: 0 });

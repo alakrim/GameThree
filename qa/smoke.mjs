@@ -11,9 +11,9 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
 let failed = false;
 for (const [name, url, vp] of [
-  ['offline-desktop', `${base}/?quality=low`, { width: 1280, height: 720 }],
-  ['online-desktop', `${base}/?quality=low&server=ws://localhost:8787`, { width: 1280, height: 720 }],
-  ['offline-phone', `${base}/?quality=low`, { width: 390, height: 844, isMobile: true, hasTouch: true }],
+  ['offline-desktop', `${base}/?quality=low&hero=hrodvar`, { width: 1280, height: 720 }],
+  ['online-desktop', `${base}/?quality=low&hero=sigrun&server=ws://localhost:8787`, { width: 1280, height: 720 }],
+  ['offline-phone', `${base}/?quality=low&hero=sigrun`, { width: 390, height: 844, isMobile: true, hasTouch: true }],
 ]) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
@@ -42,6 +42,12 @@ for (const [name, url, vp] of [
     const L = window.__lumen, me = [...L.views.values()].find((v) => v.isLocal);
     return me ? Math.hypot(me.root.position.x - L.predictor.pos.x, -me.root.position.z - L.predictor.pos.y) : -1;
   });
+  // Combat: every slot can be fired (cooldowns respected), and the 3v3 match is populated with bots.
+  const fired = [];
+  for (const slot of [0, 1, 2, 3]) { fired.push(await page.evaluate((s) => window.__lumen.fire(s), slot)); await page.waitForTimeout(1500); }
+  const heroes = await page.evaluate(() => [...window.__lumen.views.values()].filter((v) => v.isHero).length);
+  const combatOk = fired.every(Boolean) && heroes === 6;
+  if (!combatOk) errors.push(`combat: fired=${fired} heroes=${heroes}`);
   await page.screenshot({ path: `${out}/${name}.png`, timeout: 180000 });
   const moved = Math.hypot(p1.x - p0.x, p1.y - p0.y);
   const ok = moved > 4 && errors.length === 0 && drift >= 0 && drift < 0.5 && serverGap >= 0 && serverGap < 1.5;

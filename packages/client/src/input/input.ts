@@ -13,7 +13,18 @@ export class Input {
   readonly touch = matchMedia('(pointer: coarse)').matches;
   private stickEl: HTMLDivElement; private knobEl: HTMLDivElement;
 
+  /** Attack (slot 0) / abilities (1-3) press & release. */
+  onAct?: (slot: number, phase: 'down' | 'up') => void;
+  /** First user gesture (audio unlock). */
+  onGesture?: () => void;
+
   constructor(private el: HTMLCanvasElement, private cam: ThirdPersonCamera) {
+    const gesture = () => this.onGesture?.();
+    addEventListener('pointerdown', gesture, { capture: true });
+    addEventListener('keydown', gesture, { capture: true });
+    document.addEventListener('mousedown', (e) => { if (this.locked && e.button === 0) this.onAct?.(0, 'down'); });
+    document.addEventListener('mouseup', (e) => { if (e.button === 0) this.onAct?.(0, 'up'); });
+    const slotKeys: Record<string, number> = { KeyQ: 1, KeyE: 2, KeyR: 3, Digit1: 1, Digit2: 2, Digit3: 3 };
     const sens = 0.0022;
     el.addEventListener('click', () => { if (!this.touch && !this.locked) el.requestPointerLock?.(); });
     document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === el; });
@@ -23,9 +34,10 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'KeyV') cam.toggleView();
+      if (slotKeys[e.code] !== undefined) this.onAct?.(slotKeys[e.code]!, 'down');
       if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
-    addEventListener('keyup', (e) => this.keys.delete(e.code));
+    addEventListener('keyup', (e) => { this.keys.delete(e.code); if (slotKeys[e.code] !== undefined) this.onAct?.(slotKeys[e.code]!, 'up'); });
     addEventListener('blur', () => this.keys.clear());
     el.addEventListener('contextmenu', (e) => e.preventDefault());
 

@@ -7,3 +7,5 @@ export * from './world.js';
 export * from './protocol.js';
 export * from './terrain.js';
 export * from './movement.js';
+export * from './heroes.js';
+export * from './bot.js';

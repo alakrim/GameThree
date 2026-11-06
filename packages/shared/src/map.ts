@@ -4,7 +4,7 @@ import { type Vec2, distToPolyline, dist, distToSegment } from './math.js';
 export type Team = 0 | 1; // 0 = Dawn (amber), 1 = Dusk (teal)
 export type LaneId = 'top' | 'mid' | 'bot';
 
-export interface Obstacle { kind: 'grove' | 'rock' | 'wall' | 'heart'; x: number; y: number; r: number; variant: number }
+export interface Obstacle { kind: 'grove' | 'rock' | 'wall' | 'heart' | 'tower'; x: number; y: number; r: number; variant: number }
 
 /** Fort ring wall radius (m) and gate half-width (m) where lanes leave the fort. */
 export const FORT_WALL_R = 12.5;
@@ -19,6 +19,26 @@ export interface MapDef {
   riverHalfWidth: number;
   bases: Record<Team, { pos: Vec2; radius: number }>;
   obstacles: Obstacle[];
+  towers: TowerDef[];
+}
+
+export interface TowerDef { team: Team; lane: LaneId; tier: 1 | 2; x: number; y: number }
+
+/** Point at fraction t of a polyline's arc length, plus the unit direction there. */
+export function alongPolyline(pts: readonly Vec2[], t: number): { p: Vec2; dir: Vec2 } {
+  const segs: number[] = [];
+  let total = 0;
+  for (let i = 0; i < pts.length - 1; i++) { const l = dist(pts[i]!, pts[i + 1]!); segs.push(l); total += l; }
+  let d = t * total;
+  for (let i = 0; i < segs.length; i++) {
+    const l = segs[i]!;
+    if (d <= l || i === segs.length - 1) {
+      const a = pts[i]!, b = pts[i + 1]!, k = Math.min(1, d / l);
+      return { p: { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k }, dir: { x: (b.x - a.x) / l, y: (b.y - a.y) / l } };
+    }
+    d -= l;
+  }
+  return { p: pts[0]!, dir: { x: 1, y: 0 } };
 }
 
 /**
@@ -37,17 +57,28 @@ export function createMap(seed = 1337): MapDef {
     river: [{ x: -80, y: 80 }, { x: 80, y: -80 }], riverHalfWidth: 6,
     bases: { 0: { pos: { x: -64, y: -64 }, radius: 14 }, 1: { pos: { x: 64, y: 64 }, radius: 14 } },
     obstacles: [],
+    towers: [],
   };
+  // Two towers per lane per team (inner tier 2 near the fort, outer tier 1 further out), beside the road's left
+  // edge; Dusk's are exact point mirrors of Dawn's.
+  for (const lane of ['top', 'mid', 'bot'] as const) {
+    for (const [tier, t] of [[2, 0.2], [1, 0.38]] as const) {
+      const { p, dir } = alongPolyline(lanes[lane], t);
+      const off = map.laneHalfWidth + 0.6; // just off the road edge: lanes stay fully open
+      const x = p.x - dir.y * off, y = p.y + dir.x * off;
+      map.towers.push({ team: 0, lane, tier, x, y }, { team: 1, lane: lane === 'top' ? 'bot' : lane === 'bot' ? 'top' : 'mid', tier, x: -x, y: -y });
+    }
+  }
 
   const rng = new Rng(seed);
-  const placed: Obstacle[] = fortObstacles(map);
+  const placed: Obstacle[] = [...fortObstacles(map), ...map.towers.map((t, i) => ({ kind: 'tower' as const, x: t.x, y: t.y, r: 1.5, variant: i }))];
   const clearOf = (p: Vec2, r: number): boolean => {
     if (Math.abs(p.x) + r > half - 3 || Math.abs(p.y) + r > half - 3) return false;
     for (const id of ['top', 'mid', 'bot'] as const) if (distToPolyline(p, lanes[id]) < map.laneHalfWidth + r + 1.5) return false;
     if (distToSegment(p, map.river[0], map.river[1]) < map.riverHalfWidth + r + 1) return false;
     for (const t of [0, 1] as const) if (dist(p, map.bases[t].pos) < map.bases[t].radius + r + 4) return false;
     // Keep jungle corridors open: generous spacing between obstacles (min gap ~3.5 units).
-    for (const o of placed) if (o.kind !== 'wall' && o.kind !== 'heart' && dist(p, o) < o.r + r + 3.5) return false;
+    for (const o of placed) if (o.kind !== 'wall' && o.kind !== 'heart' && dist(p, o) < o.r + r + (o.kind === 'tower' ? 6 : 3.5)) return false;
     return true;
   };
   for (let i = 0; i < 2400 && placed.length < 120; i++) {

@@ -12,6 +12,10 @@ export class Predictor {
   private acc = 0;
   private pending: { seq: number; mx: number; my: number }[] = [];
   private idleSent = 0;
+  /** Latest authoritative movement multiplier (slows/hastes/wind-up) — keeps prediction close to the server. */
+  speedMul = 1;
+  /** While crowd-controlled or dashing the server drives movement; prediction pauses and follows it. */
+  serverDriven = false;
   /** Visual-only correction offset that decays to zero. */
   readonly offset = { x: 0, y: 0 };
 
@@ -29,20 +33,24 @@ export class Predictor {
       this.send({ type: 'input', seq, mx, my });
       this.pending.push({ seq, mx, my });
       if (this.pending.length > 120) this.pending.shift();
-      this.pos = moveWithCollision(this.nav, this.pos, mx * HERO_SPEED * DT, my * HERO_SPEED * DT);
+      if (this.serverDriven) continue;
+      const sp = HERO_SPEED * this.speedMul * DT;
+      this.pos = moveWithCollision(this.nav, this.pos, mx * sp, my * sp);
       if (!idle) this.facing = Math.atan2(my, mx);
     }
     const k = Math.exp(-dt * 10);
     this.offset.x *= k; this.offset.y *= k;
   }
 
-  reconcile(server: Vec2, ack: number) {
+  reconcile(server: Vec2, ack: number, speedMul = 1, serverDriven = false) {
+    this.speedMul = speedMul;
+    this.serverDriven = serverDriven;
     if (!this.pos) { this.pos = { ...server }; return; }
     this.pending = this.pending.filter((p) => p.seq > ack);
     let p = { ...server };
-    for (const i of this.pending) p = moveWithCollision(this.nav, p, i.mx * HERO_SPEED * DT, i.my * HERO_SPEED * DT);
+    if (!serverDriven) for (const i of this.pending) p = moveWithCollision(this.nav, p, i.mx * HERO_SPEED * speedMul * DT, i.my * HERO_SPEED * speedMul * DT);
     const ex = this.pos.x - p.x, ey = this.pos.y - p.y;
-    if (Math.hypot(ex, ey) > 4) { this.offset.x = this.offset.y = 0; } // teleport-scale error: snap
+    if (Math.hypot(ex, ey) > 9) { this.offset.x = this.offset.y = 0; } // respawn/teleport: snap
     else { this.offset.x += ex; this.offset.y += ey; }
     this.pos = p;
   }
