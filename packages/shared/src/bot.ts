@@ -1,7 +1,9 @@
 import type { World, Entity } from './world.js';
 import type { LaneId } from './map.js';
 import { HEROES } from './heroes.js';
-import { dist } from './math.js';
+import { dist, distToPolyline } from './math.js';
+import { BULWARKS, SENDS, type BulwarkType } from './bulwarks.js';
+import { World as WorldClass } from './world.js';
 
 /**
  * Simple lane bot. Issues the same commands a player would (no cheating access to inputs):
@@ -12,7 +14,12 @@ export class BotBrain {
   private retreating = false;
   private thinkEvery = 3; // ticks between decisions
   private phase: number;
-  constructor(readonly id: string, readonly lane: LaneId) { this.phase = id.length % 3; }
+  private buildCycle = 0;
+  private rng: number;
+  constructor(readonly id: string, readonly lane: LaneId) { this.phase = id.length % 3; this.rng = [...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7); }
+
+  /** Deterministic per-bot PRNG (simulation must stay reproducible). */
+  private rand(): number { this.rng = (Math.imul(this.rng ^ (this.rng >>> 15), 2246822519) + 0x9e3779b9) >>> 0; return this.rng / 4294967296; }
 
   think(w: World): void {
     const me = w.heroOf(this.id);
@@ -23,6 +30,7 @@ export class BotBrain {
     if (hpFrac < 0.3) this.retreating = true;
     if (this.retreating && hpFrac > 0.95) this.retreating = false;
 
+    if ((w.tick + this.phase * 17) % 45 === 0 && !this.retreating) this.economy(w, me);
     if ((w.tick + this.phase) % this.thinkEvery === 0) {
       // Pick the closest attackable enemy in engagement range.
       let target: Entity | undefined, best = 14;
@@ -64,6 +72,39 @@ export class BotBrain {
     } else {
       // Between decisions keep feeding the same input so the server doesn't stall us.
       this.move(w, me, me.input?.mx ?? 0, me.input?.my ?? 0);
+    }
+  }
+
+  /** Tower-defence decisions: fortify beside our lane, upgrade, and send units with surplus gold. */
+  private economy(w: World, me: Entity): void {
+    const gold = me.gold ?? 0;
+    const mine = [...w.entities.values()].filter((e) => e.kind === 'bulwark' && e.team === me.team);
+    // Upgrade something close by when rich.
+    if (gold > 220) {
+      const up = mine.filter((b) => b.bw!.level < 3 && b.bw!.type !== 'palisade' && dist(b.pos, me.pos) < 8).sort((a, b) => a.bw!.level - b.bw!.level)[0];
+      if (up && gold >= BULWARKS[up.bw!.type].levels[up.bw!.level]!.cost) { w.queue(this.id, { type: 'upgrade', id: up.id }); return; }
+    }
+    if (gold > 360 && this.rand() < 0.5) {
+      const unit = gold > 500 ? 'brute' : 'wolves';
+      const lanes: LaneId[] = ['top', 'mid', 'bot'];
+      w.queue(this.id, { type: 'send', unit, lane: lanes[Math.floor(this.rand() * 3)]! });
+      if (gold - SENDS[unit].cost < 120) return;
+    }
+    const order: BulwarkType[] = ['arrow', 'frost', 'arrow', 'fire', 'spikes', 'arrow', 'fire'];
+    const kind = order[this.buildCycle % order.length]!;
+    if (gold < BULWARKS[kind].levels[0].cost + 20) return;
+    const lanePts = w.map.lanes[this.lane];
+    for (let tries = 0; tries < 12; tries++) {
+      const a = this.rand() * Math.PI * 2, r = 4 + this.rand() * 8;
+      const x = Math.round((me.pos.x + Math.cos(a) * r) / 2) * 2, y = Math.round((me.pos.y + Math.sin(a) * r) / 2) * 2;
+      const dl = distToPolyline({ x, y }, lanePts);
+      // Traps go on the road; everything else beside it (bots leave mazing to humans).
+      const ok = kind === 'spikes' ? dl < w.map.laneHalfWidth - 1 : dl > w.map.laneHalfWidth + 1 && dl < w.map.laneHalfWidth + 6;
+      if (!ok || WorldClass.siteProblem(w, me.team, x, y)) continue;
+      if (mine.some((b) => dist(b.pos, { x, y }) < 4)) continue;
+      w.queue(this.id, { type: 'build', kind, x, y });
+      this.buildCycle++;
+      return;
     }
   }
 

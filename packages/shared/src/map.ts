@@ -62,7 +62,8 @@ export function createMap(seed = 1337): MapDef {
   // Two towers per lane per team (inner tier 2 near the fort, outer tier 1 further out), beside the road's left
   // edge; Dusk's are exact point mirrors of Dawn's.
   for (const lane of ['top', 'mid', 'bot'] as const) {
-    for (const [tier, t] of [[2, 0.2], [1, 0.38]] as const) {
+    // Bulwarks twist: only the gate towers remain fixed — lane defence beyond them is player-built.
+    for (const [tier, t] of [[2, 0.2]] as const) {
       const { p, dir } = alongPolyline(lanes[lane], t);
       const off = map.laneHalfWidth + 0.6; // just off the road edge: lanes stay fully open
       const x = p.x - dir.y * off, y = p.y + dir.x * off;

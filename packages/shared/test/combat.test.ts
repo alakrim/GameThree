@@ -101,17 +101,17 @@ describe('death, XP and respawn', () => {
 describe('structures', () => {
   it('towers prefer minions over heroes and shoot heroes when alone', () => {
     const w = new World({ seed: 1337, minionWaves: false });
-    const tower = [...w.entities.values()].find((e) => e.kind === 'tower' && e.team === 1 && e.tier === 1)!;
+    const tower = [...w.entities.values()].find((e) => e.kind === 'tower' && e.team === 1)!;
     const h = w.spawnHero('a', 0, 'hrodvar');
     place(h, tower.pos.x + 6, tower.pos.y);
     steps(w, TICK_RATE * 2);
     expect(h.hp).toBeLessThan(h.maxHp);
     expect(h.maxHp - h.hp).toBeLessThanOrEqual(TOWER.damageVsHero * 2);
   });
-  it('inner towers and the Heartstone are protected until the outer defences fall', () => {
+  it('gate towers are attackable; the Heartstone is protected from heroes until a gate tower falls', () => {
     const w = new World({ seed: 1337, minionWaves: false });
     const ents = [...w.entities.values()];
-    expect(ents.filter((e) => e.kind === 'tower' && e.tier === 2).every((e) => e.invulnerable)).toBe(true);
+    expect(ents.filter((e) => e.kind === 'tower').every((e) => !e.invulnerable)).toBe(true);
     expect(ents.filter((e) => e.kind === 'heart').every((e) => e.invulnerable)).toBe(true);
   });
   it('destroying the Heartstone ends the match, then it resets', () => {

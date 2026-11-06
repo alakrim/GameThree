@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { createMap, NavGrid, HEROES, DEFAULT_HERO, TICK_RATE, type Snapshot, type GameEvent, type EntitySnapshot } from '@lumen/shared';
+import { createMap, NavGrid, HEROES, DEFAULT_HERO, TICK_RATE, World, BULWARKS, BULWARK_TYPES, ECON, SENDS, investedIn, type Snapshot, type GameEvent, type EntitySnapshot, type BulwarkType } from '@lumen/shared';
 import { manager } from './assets.js';
 import { setupSky } from './render/sky.js';
 import { buildTerrain, toWorld } from './render/terrain.js';
@@ -20,6 +20,9 @@ import { LocalTransport, WsTransport, type Transport, type Welcome } from './net
 import { Input } from './input/input.js';
 import { Hud, LoadingScreen, markerColors, pickHero } from './ui/hud.js';
 import { sfx } from './audio/sfx.js';
+import { BulwarkView, WolfView } from './render/tdviews.js';
+import { buildBulwarkGhost } from './render/bulwarks.js';
+import { TdHud } from './ui/td.js';
 
 const params = new URLSearchParams(location.search);
 let tier: Tier = detectTier();
@@ -93,6 +96,49 @@ async function boot() {
 
   const hud = new Hud(document.getElementById('hud')!, input.touch, heroDef, { view: () => cam.toggleView(), act: (s, ph) => onAct(s, ph) });
   input.onAct = (s, ph) => onAct(s, ph);
+
+  // ---- Bulwarks: build mode, war table, interaction ----------------------------------------------
+  let buildOpen = false, buildType: BulwarkType = 'arrow';
+  const ghostOk = new THREE.MeshBasicMaterial({ color: 0x7fe08a, transparent: true, opacity: 0.45, depthWrite: false });
+  const ghostBad = new THREE.MeshBasicMaterial({ color: PALETTE.hostile, transparent: true, opacity: 0.45, depthWrite: false });
+  const ghosts = new Map<string, THREE.Group>();
+  let ghost: THREE.Group | null = null;
+  let ghostSite: { x: number; y: number; ok: boolean; why: string | null } | null = null;
+  const rangeRing = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 96).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xf2d48a, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }));
+  rangeRing.visible = false; scene.add(rangeRing);
+  let focus: BulwarkView | null = null;
+  const setBuild = (open: boolean, type = buildType) => {
+    buildOpen = open; buildType = type; td.setBuild(open, type);
+    if (ghost) { scene.remove(ghost); ghost = null; }
+    if (open) {
+      const key = `${type}`;
+      if (!ghosts.has(key)) ghosts.set(key, buildBulwarkGhost(type, ghostOk));
+      ghost = ghosts.get(key)!; scene.add(ghost);
+    }
+  };
+  const placeGhost = () => {
+    if (!buildOpen || !ghostSite) return;
+    if (!ghostSite.ok) { td.toast(ghostSite.why ?? 'cannot build here', 'bad'); sfx.play('uiClick', undefined, { pitch: 0.6 }); return; }
+    transport.send({ type: 'build', kind: buildType, x: ghostSite.x, y: ghostSite.y });
+  };
+  const toggleTable = (open: boolean) => { td.setTable(open); if (open) { setBuild(false); document.exitPointerLock?.(); } };
+  const td = new TdHud(document.getElementById('hud')!, input.touch, {
+    build: (t) => setBuild(true, t),
+    closeBuild: () => setBuild(false),
+    send: (unit, lane) => { transport.send({ type: 'send', unit, lane }); sfx.play('uiClick'); },
+    toggleTable,
+    place: placeGhost,
+    toggleBuild: () => setBuild(!buildOpen),
+  });
+  input.onPrimary = () => { if (!buildOpen) return false; placeGhost(); return true; };
+  input.onCancel = () => { if (buildOpen) setBuild(false); };
+  input.onKey = (code) => {
+    if (code === 'KeyB') setBuild(!buildOpen);
+    else if (code.startsWith('Digit')) setBuild(true, BULWARK_TYPES[Number(code.slice(5)) - 1] ?? 'arrow');
+    else if (code === 'KeyG') toggleTable(!td.tableOpen);
+    else if (code === 'Escape') { setBuild(false); td.setTable(false); }
+    else if ((code === 'KeyU' || code === 'KeyX') && focus) transport.send({ type: code === 'KeyU' ? 'upgrade' : 'sell', id: focus.id });
+  };
   let unlocked = false;
   input.onGesture = () => { if (!unlocked) { unlocked = true; sfx.unlock(); sfx.startAmbience(); } };
 
@@ -106,8 +152,22 @@ async function boot() {
     hud.setMarkers(markers.map((m) => ({ yaw: 0, color: m.color, label: m.label })));
   };
   const eventQueue: { t: number; ev: GameEvent }[] = [];
+  /** Structures block movement: mirror them into the client nav grid so prediction matches the server. */
+  const navBlocks = new Map<number, number[]>();
+  let waveNo = 0, nextWave = 0;
   transport.onSnapshot = (s: Snapshot) => {
     interp.push(s, performance.now()); lastTick = s.tick;
+    waveNo = s.wv ?? waveNo; nextWave = s.nw ?? nextWave;
+    const seen = new Set<number>();
+    for (const e of s.ents) {
+      if (e.k !== 5) continue;
+      seen.add(e.id);
+      if (!navBlocks.has(e.id)) {
+        const cells = BULWARKS[BULWARK_TYPES[e.b ?? 0]!].blocks ? nav.footprint(e.x, e.y) : [];
+        nav.block(cells, true); navBlocks.set(e.id, cells);
+      }
+    }
+    for (const [id, cells] of navBlocks) if (!seen.has(id)) { nav.block(cells, false); navBlocks.delete(id); }
     for (const ev of s.ev ?? []) eventQueue.push({ t: (s.tick * 1000) / TICK_RATE, ev });
     mine = me ? s.ents.find((e) => e.o === me!.playerId) : undefined;
     if (mine) predictor.reconcile({ x: mine.x, y: mine.y }, mine.sq ?? 0, mine.sm ?? 1, !!((mine.st ?? 0) & (1 | 4 | 32)));
@@ -158,7 +218,9 @@ async function boot() {
   // ---- Entity views ---------------------------------------------------------------------------
   const units = new Map<number, UnitView>();
   const structures = new Map<number, StructureView>();
-  const collapsing: StructureView[] = [];
+  const collapsing: { collapse(dt: number): boolean; root: THREE.Object3D }[] = [];
+  const bulwarkViews = new Map<number, BulwarkView>();
+  const wolves = new Map<number, WolfView>();
   const projectiles = new Map<number, ProjectileView>();
   const lastSeen = new Map<number, InterpEntity>();
   const worldPos = (id: number) => { const e = lastSeen.get(id); return e ? toWorld(e.x, e.y, terrain.heightAt(e.x, e.y)) : null; };
@@ -198,6 +260,11 @@ async function boot() {
         if (!src || isMe(ev.s)) return; // own actions were played immediately on input
         const p = worldPos(ev.s)!;
         if (src.k === 2) { sfx.play('towerShot', p.clone().setY(p.y + 8)); return; }
+        if (src.k === 5) {
+          const bv = bulwarkViews.get(ev.s); bv?.aim(ev.y);
+          sfx.play(bv?.type === 'fire' ? 'towerShot' : 'swing', p.clone().setY(p.y + 3), { pitch: bv?.type === 'fire' ? 0.8 : 1.7, volume: 0.6 });
+          return;
+        }
         const u = units.get(ev.s);
         const kind = actionAnim(src.h, ev.a);
         u?.character.play(kind, 0.55);
@@ -238,7 +305,7 @@ async function boot() {
         break;
       }
       case 'aoe': {
-        const kind = ev.fx === 'glacial_burst' ? 'frost' : 'horn';
+        const kind = ev.fx === 'glacial_burst' ? 'frost' : ev.fx === 'ember' ? 'fire' : 'horn';
         vfx.blast(ev.x, -ev.y, ev.r, kind);
         sfx.play(kind === 'frost' ? 'explosion' : 'hit', toWorld(ev.x, ev.y, terrain.heightAt(ev.x, ev.y)), { pitch: kind === 'frost' ? 1.2 : 0.7 });
         break;
@@ -255,7 +322,36 @@ async function boot() {
         sfx.play(won ? 'victory' : 'defeat');
         break;
       }
-      case 'reset': hud.clearMessage(); for (const sv of structures.values()) scene.remove(sv.root); structures.clear(); break;
+      case 'build': {
+        const p = toWorld(ev.x, ev.y, terrain.heightAt(ev.x, ev.y));
+        vfx.dust(p.clone().setY(p.y + 0.4), ev.lv ? 10 : 22, 0x9a8f7c);
+        sfx.play('hit', p, { pitch: ev.lv ? 1.3 : 0.6, volume: 0.8 });
+        if (ev.lv) vfx.levelUp(p);
+        break;
+      }
+      case 'deny': if (isMe(ev.s)) { td.toast(ev.why, 'bad'); sfx.play('uiClick', undefined, { pitch: 0.6 }); } break;
+      case 'wave': td.showBanner(`Wave ${ev.n}`, ev.n % 5 === 0 ? 'A Rimetroll leads the charge' : 'The warbands march'); sfx.play('horn', undefined, { volume: 0.5 }); break;
+      case 'leak': {
+        const own = !!me && ev.t === me.team;
+        td.toast(own ? `Leak! Heartstone −${ev.n}` : `Enemy leak −${ev.n}`, own ? 'bad' : 'good');
+        const hp = map.bases[ev.t].pos; const p = toWorld(hp.x, hp.y, terrain.heightAt(hp.x, hp.y) + 3);
+        vfx.impact(p, own ? PALETTE.hostile : 0xf2d48a, true);
+        if (own) sfx.play('explosion', undefined, { volume: 0.35, pitch: 1.4 });
+        break;
+      }
+      case 'send': {
+        const src = lastSeen.get(ev.s);
+        if (src && me && src.t === me.team) td.toast(`${isMe(ev.s) ? 'You' : 'An ally'} sent ${SENDS[ev.u as keyof typeof SENDS]?.name ?? ev.u} → ${ev.l}`, 'good');
+        break;
+      }
+      case 'gold': if (isMe(ev.s)) { const p = worldPos(ev.d); if (p) { hud.damage(p.x, p.y + 2.2, p.z, ev.n, 'heal'); vfx.coins(p.clone().setY(p.y + 1.5)); } } break;
+      case 'lob': {
+        const bv = bulwarkViews.get(ev.s);
+        const from = bv ? bv.muzzle : worldPos(ev.s)?.setY(3);
+        if (from) vfx.lob(from, toWorld(ev.x, ev.y, terrain.heightAt(ev.x, ev.y) + 0.3), ev.d);
+        break;
+      }
+      case 'reset': hud.clearMessage(); for (const v of bulwarkViews.values()) scene.remove(v.root); bulwarkViews.clear(); for (const sv of structures.values()) scene.remove(sv.root); structures.clear(); break;
     }
   }
 
@@ -287,6 +383,8 @@ async function boot() {
     for (const [id, v] of units) if (!ents.has(id)) { scene.remove(v.root); units.delete(id); }
     for (const [id, v] of projectiles) if (!ents.has(id)) { scene.remove(v.root); projectiles.delete(id); }
     for (const [id, v] of structures) if (!ents.has(id)) { scene.remove(v.root); structures.delete(id); }
+    for (const [id, v] of bulwarkViews) if (!ents.has(id)) { collapsing.push(v); bulwarkViews.delete(id); }
+    for (const [id, v] of wolves) if (!ents.has(id)) { scene.remove(v.root); wolves.delete(id); }
     lastSeen.clear();
     for (const e of ents.values()) {
       lastSeen.set(e.id, e);
@@ -298,6 +396,20 @@ async function boot() {
         if (e.fx === 'tower_bolt') pv.root.position.y = Math.max(pv.root.position.y, terrain.heightAt(e.x, e.y) + 1.4);
         continue;
       }
+      if (e.k === 5) {
+        let bv = bulwarkViews.get(e.id);
+        if (!bv) { bv = new BulwarkView(e.id, e.t, e.b ?? 0, ally, e.o); bulwarkViews.set(e.id, bv); scene.add(bv.root); }
+        bv.setLevel(e.lv ?? 1);
+        bv.place(e.x, e.y, terrain.heightAt(e.x, e.y), e.hp / e.mh, cam.camera, dt);
+        continue;
+      }
+      if (e.k === 1 && e.u === 'wolf') {
+        let wv = wolves.get(e.id);
+        if (!wv) { wv = new WolfView(e.id, e.t, ally); wolves.set(e.id, wv); scene.add(wv.root); }
+        if ((e.st ?? 0) & 4 || e.hp <= 0) wv.setDead(true);
+        wv.place(e.x, e.y, terrain.heightAt(e.x, e.y), e.f, e.hp / e.mh, cam.camera, dt);
+        continue;
+      }
       if (e.k === 2 || e.k === 4) {
         let sv = structures.get(e.id);
         if (!sv) { sv = new StructureView(e.id, e.t, e.k === 2 ? 'tower' : 'heart', ally); structures.set(e.id, sv); scene.add(sv.root); }
@@ -306,7 +418,7 @@ async function boot() {
       }
       const isLocal = !!me && e.o === me.playerId;
       let v = units.get(e.id);
-      if (!v) { v = new UnitView(e.id, e.t, e.k === 0, ally, isLocal, e.h); units.set(e.id, v); scene.add(v.root); }
+      if (!v) { v = new UnitView(e.id, e.t, e.k === 0, ally, isLocal, e.h, e.u); units.set(e.id, v); scene.add(v.root); }
       let x = e.x, y = e.y, f = e.f;
       if (isLocal && predictor.render) {
         ({ x, y } = predictor.render);
@@ -321,6 +433,48 @@ async function boot() {
       if (st & 32 && Math.random() < 0.7) vfx.emit(v.root.position.clone().setY(v.root.position.y + 1), 2, { color: e.h === 'sigrun' ? 0xaee6ff : 0xe9d7a8, speed: 0.4, life: 0.4, size: 0.35, gravity: 0 });
     }
     for (const c of [...collapsing]) if (!c.collapse(dt)) { scene.remove(c.root); collapsing.splice(collapsing.indexOf(c), 1); }
+
+    // ---- Bulwarks: placement ghost, focus (upgrade/sell), range rings, treasury --------------------
+    const myTeam = me?.team ?? 0;
+    rangeRing.visible = false; focus = null;
+    if (predictor.pos && mine) {
+      const aimP = reticleGround(40);
+      if (buildOpen && ghost) {
+        const x = Math.round(aimP.x / 2) * 2, y = Math.round(aimP.y / 2) * 2;
+        const cost = BULWARKS[buildType].levels[0].cost;
+        let why = World.siteProblem({ map, nav }, myTeam, x, y);
+        if (!why && Math.hypot(x - predictor.pos.x, y - predictor.pos.y) > ECON.buildRange) why = 'too far — move closer';
+        if (!why && (mine.g ?? 0) < cost) why = 'not enough gold';
+        if (!why && [...bulwarkViews.values()].some((b) => { const e = lastSeen.get(b.id); return e && e.x === x && e.y === y; })) why = 'occupied';
+        ghostSite = { x, y, ok: !why, why };
+        ghost.position.copy(toWorld(x, y, terrain.heightAt(x, y)));
+        ghost.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.material = why ? ghostBad : ghostOk; });
+        const l = BULWARKS[buildType].levels[0];
+        const r = l.range ?? l.aura;
+        if (r) { rangeRing.visible = true; rangeRing.position.copy(ghost.position).setY(ghost.position.y + 0.15); rangeRing.scale.setScalar(r); }
+        td.tooltip(why ? `<b>${BULWARKS[buildType].name}</b> · ${why}` : `<b>${BULWARKS[buildType].name}</b> · ${cost} gold · ${BULWARKS[buildType].blurb}`);
+      } else {
+        // Look at an own structure nearby to upgrade/sell it.
+        let best: BulwarkView | null = null, bd = 2.6;
+        for (const bv of bulwarkViews.values()) {
+          if (bv.team !== myTeam) continue;
+          const e = lastSeen.get(bv.id); if (!e) continue;
+          const d = Math.hypot(e.x - aimP.x, e.y - aimP.y);
+          if (d < bd && Math.hypot(e.x - predictor.pos.x, e.y - predictor.pos.y) < ECON.interactRange) { bd = d; best = bv; }
+        }
+        focus = best;
+        if (best) {
+          const e = lastSeen.get(best.id)!, lv = e.lv ?? 1, def = BULWARKS[best.type];
+          const refund = Math.floor(investedIn(best.type, lv) * ECON.sellRefund * (best.type === 'spikes' ? 1 : e.hp / e.mh));
+          const up = lv < 3 ? `<kbd>U</kbd> upgrade <b>${def.levels[lv]!.cost}</b>` : 'max level';
+          td.tooltip(`<b>${def.name}</b> L${lv} · ${up} · <kbd>X</kbd> sell <b>+${refund}</b>`);
+          if (best.range > 2) { rangeRing.visible = true; rangeRing.position.copy(best.root.position).setY(best.root.position.y + 0.15); rangeRing.scale.setScalar(best.range); }
+        } else td.tooltip(null);
+      }
+      const hearts: [number, number] = [1, 1];
+      for (const sv of structures.values()) if (sv.kind === 'heart') { const e = lastSeen.get(sv.id); if (e) hearts[sv.team === myTeam ? 0 : 1] = e.hp / e.mh; }
+      td.update(mine.g ?? 0, mine.inc ?? 0, waveNo, nextWave, hearts);
+    }
 
     // Ground-target preview while an AoE key is held.
     const gSlot = heroDef.abilities.findIndex((a, i) => a.kind === 'groundAoe' && held[i + 1]);
@@ -382,7 +536,7 @@ async function boot() {
   requestAnimationFrame(frame);
   (window as unknown as { __lumen: unknown }).__lumen = {
     views: units, structures, cam, predictor, interp, get me() { return me; }, get mine() { return mine; }, get tick() { return lastTick; }, transport, renderer,
-    setDebugView: (v: typeof debugView) => { debugView = v; }, fire,
+    setDebugView: (v: typeof debugView) => { debugView = v; }, fire, map, bulwarkViews,
   };
 }
 

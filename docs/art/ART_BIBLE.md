@@ -279,3 +279,42 @@ Every new asset must pass before merging:
 - [ ] Animation has anticipation, layering where applicable, and no root motion.
 - [ ] Additive layers stay within the Section 10 cap.
 - [ ] Renders correctly at all three tiers; `CREDITS.md` entry and naming follow Section 14.
+
+## Appendix A — Bulwarks (core twist) art notes
+
+Scope: structures, send units, placement UI and Heartstone feedback for the Bulwarks twist (`docs/design/TWIST_BULWARKS.md`). Values tagged **[P]** are proposals for Art Director sign-off.
+
+**Rule changes for the twist.** R3 covers units and heroes. Enemy structures are map-level, so their team rim shows at all times at low contrast, which lets lane geometry read before anything is targeted. Section 4.1 still holds: team colors never tint Heartstones, so Heartstone feedback uses Carved Light only.
+
+**A.1 Structure silhouettes by level.** Readable at 30 m in grayscale. The Low-tier budget is that of a prop: 2,000 triangles and one material.
+
+| Structure | L1 | L2 | L3 |
+|---|---|---|---|
+| Watch Tower | Timber-and-stone post, one arrow slit under a flat cap | Iron-banded ring, second slit | Crenellated top, brass-tipped arrow rack above the pines |
+| Rime Totem | Carved stone pillar with a rime cap | Two frost bands, crystal shard collar | Crowned pillar, crystal spike ring, Rime Shadow mist column |
+| Ember Catapult | Low wooden frame, one throwing arm | Iron-reinforced frame, counterweight box | Twin-arm siege frame, brazier cup on the bed (fire in Flame Amber only) |
+| Palisade | Sharpened stakes in 2 m sections | Taller stakes, lashed crossbars | Log-and-stone wall with iron-capped stakes |
+| Caltrops | Flat scatter of iron spikes | Spikes in regular rows, rimmed edge | Dense star pattern, frost on the points; reads as ground at 30 m |
+
+**A.2 Placement ghost.** Valid: solid outline in `#7BD389` [P] with a check glyph and a 35% fill. Invalid: dashed outline in `#B5389F` [P] with a cross glyph and the reason text. Invalid magenta must stay distinct from Telegraph Rose (`#E8457A`), since allied UI never uses hostile color. Shape carries the meaning (solid or dashed, check or cross), so the ghost passes R7 and the three-way colorblind simulation. For LANE BLOCKED, the sealing cells outline in the invalid style.
+
+**A.3 Team identity on structures.** Hearthguard: a solid Ember Orange (`#E07A2E`) rim band and a square banner in Hearth Red-Brown cloth. Rimewardens: a dashed Glacial Blue (`#4FA3D9`) rim band and a swallow-tail banner in Slate Blue cloth. Palisades carry only a banner marker at each section end, to keep walls quiet.
+
+**A.4 Range and aura indicators.** Ground decals in the shape language of Section 10: circle for radius, ring for channel. Range rings are a 1 px outline in team color, drawn only in build mode or when a structure is selected. Watch Tower: circles at 13, 14 and 15 m. Ember Catapult: outer ring at 16 m and inner ring at 4 m (minimum range). Rime Totem: 7 m aura as a 20% Rime Shadow wash with a solid team-color edge. Caltrops: footprint in Rime Shadow with charge pips around the edge. Enemy ranges appear only when a hero is in range, drawn in Telegraph Rose.
+
+**A.5 Send units.** Silhouettes must read at 30 m in grayscale.
+
+- **Wolf** (pack of three): low and long-bodied, Rime Shadow coat, frost-tipped tail held straight out at a run. Team marker: a collar band, solid for Hearthguard and dashed for Rimewardens.
+- **Draugr Brute:** broad and hunched, bone plates over boiled leather, stone-headed maul. Team marker: a banner pole on the back.
+- **Rimetroll (boss):** taller than any hero, rime-plated shoulders, a trailing ice-crust mantle. Team marker: a banner on the left shoulder. Feet sink in snow (ART_BIBLE 9 applies).
+
+No fire, and no team tint on fur, bone or stone. [P] Low-tier triangle budgets: wolf 3,000, brute 4,000, Rimetroll 6,000.
+
+**A.6 Leak feedback on the Heartstone.**
+
+- **Approach:** a hostile within 6 m of the Heartstone gets a Telegraph Rose ground decal under its feet (R5).
+- **Leak hit:** a 0.2 s Carved Light pulse, a crack line from the impact point, and a damage number in Inter Bold with a dark outline.
+- **Stages:** at 75%, 50% and 25% HP (3,150, 2,100 and 1,050), one rune band dims per stage and cracks spread across the stone. The 25% stage adds a low horn cue (ART_BIBLE 12).
+- **Compass bar:** each leak adds a pip to a row beside the Heartstone marker.
+
+No fire, no team color, and no floating icons.

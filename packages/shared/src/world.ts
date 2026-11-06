@@ -9,14 +9,18 @@ import {
   type HeroDef, type AbilityDef,
 } from './heroes.js';
 import { BotBrain } from './bot.js';
+import { BULWARKS, UNITS, SENDS, ECON, WAVES, OFF_LANE_COST, investedIn, BULWARK_TYPES, type BulwarkType, type UnitType, type SendType } from './bulwarks.js';
+import { distToPolyline } from './math.js';
+import { FORT_WALL_R } from './map.js';
 
-export type EntityKind = 'hero' | 'minion' | 'tower' | 'heart' | 'projectile';
+export type EntityKind = 'hero' | 'minion' | 'tower' | 'heart' | 'projectile' | 'bulwark';
 
 /** An in-progress attack or ability (windup -> resolve). */
 interface Action { slot: number; ticks: number; aim: number; tx: number; ty: number }
 interface Dash { dx: number; dy: number; ticks: number; ability: AbilityDef; hit: boolean }
 interface Projectile { owner: number; vx: number; vy: number; life: number; dmg: number; width: number; ability?: AbilityDef; homing?: number }
-interface PendingAoe { owner: number; team: Team; x: number; y: number; ticks: number; ability: AbilityDef; dmg: number }
+interface PendingAoe { owner: number; team: Team; x: number; y: number; ticks: number; ability?: AbilityDef; dmg: number; r?: number; burn?: { dps: number; dur: number; r: number } }
+interface Burn { owner: number; team: Team; x: number; y: number; r: number; dps: number; ticks: number }
 
 export interface Entity {
   id: number;
@@ -56,6 +60,12 @@ export interface Entity {
   input?: { mx: number; my: number };
   lastSeq?: number;
   starve?: number;
+  // Economy (heroes)
+  gold?: number; income?: number;
+  // Wave units (minions, wolves, brutes, trolls)
+  unit?: UnitType;
+  // Player-built structures
+  bw?: { type: BulwarkType; level: number; owner: string; cells: number[]; charges: number };
   // Projectiles
   proj?: Projectile;
   fx?: string;               // visual id for projectiles
@@ -85,6 +95,17 @@ export class World {
   private aoes: PendingAoe[] = [];
   private events: GameEvent[] = [];
   private bots = new Map<string, BotBrain>();
+  wave = 0;
+  private matchStart = 0;
+  private burns: Burn[] = [];
+  /** Per attacking team, per lane: queued send units for that team's next wave. */
+  private sendQueue: Record<Team, Record<LaneId, UnitType[]>> = { 0: { top: [], mid: [], bot: [] }, 1: { top: [], mid: [], bot: [] } };
+  private flow: Partial<Record<string, Float32Array>> = {};
+  private flowDirty = true;
+  /** Fields awaiting rebuild ("attacker:lane"); at most one is rebuilt per tick to keep ticks flat. */
+  private dirtyFields = new Set<string>();
+  private laneMask: Record<LaneId, Uint8Array> | null = null;
+  private heartGoals: Record<Team, number[]> = { 0: [], 1: [] };
   private botSeq = 0;
   private readonly opts: Required<WorldOptions>;
 
@@ -93,6 +114,7 @@ export class World {
     this.map = createMap(this.opts.seed);
     this.nav = new NavGrid(this.map);
     if (this.opts.structures) this.spawnStructures();
+    this.prepareFlow();
   }
 
   // ---- Players ------------------------------------------------------------------------------
@@ -103,7 +125,7 @@ export class World {
       kind: 'hero', team, pos: this.spawnPoint(team), facing: team === 0 ? Math.PI / 4 : -3 * Math.PI / 4,
       radius: 0.55, speed: def.speed, hp: def.hp, maxHp: def.hp, path: [], moving: false, damage: def.damage,
       atkTicks: 0, stunTicks: 0, slowTicks: 0, slowPct: 0, hasteTicks: 0, hastePct: 0,
-      owner, heroId: def.id, bot, level: 1, xp: 0, cds: [0, 0, 0, 0], inputs: [], input: { mx: 0, my: 0 }, lastSeq: 0, starve: 0,
+      owner, heroId: def.id, bot, level: 1, xp: 0, cds: [0, 0, 0, 0], gold: ECON.startGold, income: ECON.baseIncome, inputs: [], input: { mx: 0, my: 0 }, lastSeq: 0, starve: 0,
     });
     return e;
   }
@@ -146,7 +168,10 @@ export class World {
     }
     for (const b of this.bots.values()) b.think(this);
     this.applyCommands();
+    if (this.flowDirty) this.rebuildFlow();
+    else if (this.dirtyFields.size) { const k = this.dirtyFields.values().next().value!; this.dirtyFields.delete(k); this.rebuildField(k); }
     if (this.opts.minionWaves) this.spawnWaves();
+    if (this.tick % TICK_RATE === 0) for (const e of this.entities.values()) if (e.kind === 'hero') e.gold! += ECON.passivePerSec;
     for (const e of [...this.entities.values()]) {
       if (!this.entities.has(e.id)) continue;
       this.tickStatus(e);
@@ -155,9 +180,11 @@ export class World {
         case 'minion': this.stepMinion(e); break;
         case 'tower': this.stepTower(e); break;
         case 'projectile': this.stepProjectile(e); break;
+        case 'bulwark': this.stepBulwark(e); break;
       }
     }
     this.stepAoes();
+    this.stepBurns();
     this.separate();
     this.tick++;
   }
@@ -183,12 +210,15 @@ export class World {
         s.cd = e.cds!.map((c) => Math.ceil(c / 3)); // tenths of a second
         s.sm = round2(this.speedMul(e));
         if (e.deadTicks) s.rs = Math.ceil(e.deadTicks / TICK_RATE);
+        s.g = Math.floor(e.gold ?? 0); s.inc = e.income;
       }
+      if (e.unit && e.unit !== 'minion') s.u = e.unit;
+      if (e.bw) { s.b = BULWARK_TYPES.indexOf(e.bw.type); s.lv = e.bw.level; s.o = e.bw.owner; }
       if (e.kind === 'tower') s.tr = e.tier;
       if (e.fx) s.fx = e.fx;
       ents.push(s);
     }
-    const snap: Snapshot = { tick: this.tick, ents, ev: this.events };
+    const snap: Snapshot = { tick: this.tick, ents, ev: this.events, wv: this.wave, nw: Math.ceil(this.ticksToNextWave() / TICK_RATE) };
     if (this.winner !== null) snap.win = this.winner;
     this.events = [];
     return snap;
@@ -226,6 +256,10 @@ export class World {
           break;
         }
         case 'act': this.tryAct(hero, cmd.slot, cmd.aim, cmd.tx, cmd.ty); break;
+        case 'build': { const why = this.tryBuild(hero, cmd.kind, cmd.x, cmd.y); if (why) this.events.push({ e: 'deny', s: hero.id, why }); break; }
+        case 'upgrade': { const why = this.tryUpgrade(hero, cmd.id); if (why) this.events.push({ e: 'deny', s: hero.id, why }); break; }
+        case 'sell': { const why = this.trySell(hero, cmd.id); if (why) this.events.push({ e: 'deny', s: hero.id, why }); break; }
+        case 'send': { const why = this.trySend(hero, cmd.unit, cmd.lane); if (why) this.events.push({ e: 'deny', s: hero.id, why }); break; }
       }
     }
   }
@@ -398,7 +432,7 @@ export class World {
 
   private applyAbility(t: Entity, ab: AbilityDef, dmg: number, src: Entity): void {
     if (dmg > 0) this.damage(t, dmg, src, 1);
-    if (t.hp <= 0 || t.deadTicks || t.kind === 'tower' || t.kind === 'heart') return;
+    if (t.hp <= 0 || t.deadTicks || t.kind === 'tower' || t.kind === 'heart' || t.kind === 'bulwark') return;
     if (ab.stun) t.stunTicks = Math.max(t.stunTicks, T(ab.stun));
     if (ab.slow && (t.slowTicks <= 0 || ab.slow.pct >= t.slowPct)) { t.slowTicks = T(ab.slow.dur); t.slowPct = ab.slow.pct; }
   }
@@ -415,8 +449,9 @@ export class World {
   private kill(t: Entity, src: Entity | undefined): void {
     t.hp = 0;
     this.events.push({ e: 'die', s: src?.id ?? 0, d: t.id });
+    this.payBounty(t, src);
     // XP: shared between enemy heroes nearby (+ the killer if it's a hero).
-    const xp = t.kind === 'minion' ? XP.minion : t.kind === 'hero' ? XP.heroBase + XP.heroPerLevel * (t.level ?? 1) : t.kind === 'tower' ? XP.tower : 0;
+    const xp = t.kind === 'minion' ? (t.unit === 'troll' ? XP.minion * 6 : t.unit === 'brute' ? XP.minion * 3 : XP.minion) : t.kind === 'hero' ? XP.heroBase + XP.heroPerLevel * (t.level ?? 1) : t.kind === 'tower' ? XP.tower : 0;
     if (xp > 0) {
       const takers = [...this.entities.values()].filter((h) => h.kind === 'hero' && h.team !== t.team && !h.deadTicks && (t.kind === 'tower' || dist(h.pos, t.pos) < XP.shareRadius || h.id === src?.id));
       for (const h of takers) this.grantXp(h, t.kind === 'tower' ? xp : xp / Math.max(1, takers.length) * (takers.length > 1 ? 1.3 : 1));
@@ -435,6 +470,9 @@ export class World {
       case 'tower':
         this.entities.delete(t.id);
         this.updateInvulnerability();
+        break;
+      case 'bulwark':
+        this.removeBulwark(t);
         break;
       default:
         this.entities.delete(t.id);
@@ -512,11 +550,15 @@ export class World {
       if (--a.ticks > 0) continue;
       this.aoes.splice(this.aoes.indexOf(a), 1);
       const src = this.entities.get(a.owner);
+      const r = a.ability?.radius ?? a.r ?? 3;
       for (const t of this.entities.values()) {
-        if (t.team === a.team || !this.targetable(t)) continue;
-        if (dist(t.pos, a) <= (a.ability.radius ?? 3) + t.radius && src) this.applyAbility(t, a.ability, a.dmg, src);
+        if (t.team === a.team || !this.targetable(t) || t.kind === 'heart') continue;
+        if (dist(t.pos, a) > r + t.radius) continue;
+        if (a.ability && src) this.applyAbility(t, a.ability, a.dmg, src);
+        else if (!a.ability && (t.kind === 'minion' || t.kind === 'hero')) this.damage(t, a.dmg, src, 2);
       }
-      this.events.push({ e: 'aoe', s: a.owner, x: round2(a.x), y: round2(a.y), r: a.ability.radius ?? 3, fx: a.ability.id });
+      if (a.burn) this.burns.push({ owner: a.owner, team: a.team, x: a.x, y: a.y, r: a.burn.r, dps: a.burn.dps, ticks: T(a.burn.dur) });
+      this.events.push({ e: 'aoe', s: a.owner, x: round2(a.x), y: round2(a.y), r, fx: a.ability?.id ?? 'ember' });
     }
   }
 
@@ -535,7 +577,7 @@ export class World {
     this.updateInvulnerability();
   }
 
-  /** Inner towers are protected until their lane's outer tower falls; the Heartstone until any inner tower falls. */
+  /** Inner towers are protected until their lane's outer tower falls; the Heartstone (vs. heroes) until a gate tower falls. */
   private updateInvulnerability(): void {
     const towers = [...this.entities.values()].filter((e) => e.kind === 'tower');
     for (const t of towers) if (t.tier === 2) t.invulnerable = towers.some((o) => o.team === t.team && o.lane === t.lane && o.tier === 1);
@@ -567,19 +609,36 @@ export class World {
 
   // ---- Minions ------------------------------------------------------------------------------
 
+  private ticksToNextWave(): number {
+    const every = Math.round(WAVES.interval * TICK_RATE), first = Math.round(WAVES.first * TICK_RATE);
+    const t = this.tick - this.matchStart;
+    if (t < first) return first - t;
+    return every - ((t - first) % every);
+  }
+
   private spawnWaves(): void {
-    const every = Math.round(this.opts.waveInterval / DT);
-    const first = Math.round(5 / DT);
-    if (this.tick < first || (this.tick - first) % every !== 0) return;
+    const every = Math.round(WAVES.interval * TICK_RATE), first = Math.round(WAVES.first * TICK_RATE);
+    const t = this.tick - this.matchStart;
+    if (t < first || (t - first) % every !== 0) return;
+    this.wave++;
+    for (const h of this.entities.values()) if (h.kind === 'hero') h.gold! += h.income!;
+    this.events.push({ e: 'wave', n: this.wave });
+    const hpMul = 1 + WAVES.hpGrowth * (this.wave - 1), dmgMul = 1 + WAVES.dmgGrowth * (this.wave - 1);
     for (const team of [0, 1] as const) for (const lane of ['top', 'mid', 'bot'] as const) {
+      const units: UnitType[] = Array(WAVES.perLane).fill('minion');
+      if (this.wave % WAVES.bossEvery === 0) units.push('troll');
+      units.push(...this.sendQueue[team][lane]);
+      this.sendQueue[team][lane] = [];
       const pts = this.lanePoints(lane, team);
-      for (let i = 0; i < 4; i++) {
-        const start = pts[0]!;
-        const back = { x: start.x - Math.sign(pts[1]!.x - start.x) * i * 1.4, y: start.y - Math.sign(pts[1]!.y - start.y) * i * 1.4 };
-        this.add({ kind: 'minion', team, pos: this.nav.nearestWalkable(back) ?? { ...start }, facing: 0, radius: 0.45, speed: MINION.speed,
-          hp: MINION.hp, maxHp: MINION.hp, path: [], moving: true, damage: MINION.damage, atkTicks: 0, stunTicks: 0, slowTicks: 0, slowPct: 0,
-          hasteTicks: 0, hastePct: 0, lane, laneIdx: 1 });
-      }
+      const start = pts[0]!, dir = { x: Math.sign(pts[1]!.x - start.x), y: Math.sign(pts[1]!.y - start.y) };
+      units.forEach((u, i) => {
+        const def = UNITS[u];
+        const back = { x: start.x - dir.x * (i % 6) * 1.3 + (i >= 6 ? 1.2 : 0), y: start.y - dir.y * (i % 6) * 1.3 };
+        const scale = u === 'minion' || u === 'troll' ? hpMul : 1 + (hpMul - 1) * 0.5;
+        this.add({ kind: 'minion', unit: u, team, pos: this.nav.nearestWalkable(back) ?? { ...start }, facing: Math.atan2(dir.y, dir.x), radius: def.radius, speed: def.speed,
+          hp: Math.round(def.hp * scale), maxHp: Math.round(def.hp * scale), path: [], moving: true, damage: def.damage * dmgMul, atkTicks: 0, stunTicks: 0,
+          slowTicks: 0, slowPct: 0, hasteTicks: 0, hastePct: 0, lane, laneIdx: 1 });
+      });
     }
   }
 
@@ -588,22 +647,108 @@ export class World {
     return team === 0 ? pts : [...pts].reverse();
   }
 
+  // ---- Tower-defence pathing ----------------------------------------------------------------
+
+  private prepareFlow(): void {
+    const n = this.nav.size;
+    const mask = (lane: LaneId) => {
+      const m = new Uint8Array(n * n);
+      for (let i = 0; i < n * n; i++) {
+        const p = this.nav.toWorld(i % n, (i / n) | 0);
+        const inFort = [0, 1].some((t) => dist(p, this.map.bases[t as Team].pos) < FORT_WALL_R + 3);
+        m[i] = inFort || distToPolyline(p, this.map.lanes[lane]) < this.map.laneHalfWidth + 2.5 ? 1 : OFF_LANE_COST; // step cost
+      }
+      return m;
+    };
+    this.laneMask = { top: mask('top'), mid: mask('mid'), bot: mask('bot') };
+    for (const t of [0, 1] as const) {
+      const hp = this.map.bases[t].pos, goals: number[] = [];
+      for (let i = 0; i < n * n; i++) { const p = this.nav.toWorld(i % n, (i / n) | 0); if (dist(p, hp) < 4.6 && this.nav.isWalkableCell(i % n, (i / n) | 0)) goals.push(i); }
+      this.heartGoals[t] = goals;
+    }
+    this.flowDirty = true;
+  }
+
+  /** Recompute all 6 lane flow fields (attacker team x lane): start of match / reset only. */
+  private rebuildFlow(): void {
+    this.flowDirty = false; this.dirtyFields.clear();
+    for (const attacker of [0, 1] as const) for (const lane of ['top', 'mid', 'bot'] as const) this.rebuildField(`${attacker}:${lane}`);
+  }
+
+  private rebuildField(key: string): void {
+    const [a, lane] = key.split(':') as [string, LaneId];
+    const attacker = Number(a) as Team;
+    this.flow[key] = this.nav.flowField(this.heartGoals[attacker === 0 ? 1 : 0], this.laneMask![lane]);
+  }
+
+  /** A team's structures only change the paths of the *other* team's waves. */
+  private mazeChanged(defender: Team): void {
+    const attacker = defender === 0 ? 1 : 0;
+    for (const lane of ['top', 'mid', 'bot'] as const) this.dirtyFields.add(`${attacker}:${lane}`);
+  }
+
+  /** Steer a wave unit down its lane's flow field (around player mazes) toward the enemy Heartstone. */
+  private flowStep(e: Entity): void {
+    const field = this.flow[`${e.team}:${e.lane}`];
+    const n = this.nav.size;
+    let [cx, cy] = this.nav.toCell(e.pos);
+    let target: Vec2 | null = null;
+    if (field && Number.isFinite(field[cy * n + cx]!)) {
+      // Follow the steepest descent a few cells ahead and aim at that cell centre (smooth, maze-aware).
+      for (let k = 0; k < 3; k++) {
+        let best = field[cy * n + cx]!, bx = cx, by = cy;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const nx = cx + dx, ny = cy + dy;
+          if ((!dx && !dy) || !this.nav.inBounds(nx, ny)) continue;
+          if (dx && dy && (!this.nav.isWalkableCell(cx + dx, cy) || !this.nav.isWalkableCell(cx, cy + dy))) continue;
+          const v = field[ny * n + nx]!;
+          if (v < best) { best = v; bx = nx; by = ny; }
+        }
+        if (bx === cx && by === cy) break;
+        cx = bx; cy = by;
+        if (k === 0 || this.nav.lineOfSight(e.pos, this.nav.toWorld(cx, cy))) target = this.nav.toWorld(cx, cy); else break;
+      }
+    }
+    target ??= this.map.bases[e.team === 0 ? 1 : 0].pos;
+    const d = dist(target, e.pos);
+    if (d < 1e-3) return;
+    e.facing = Math.atan2(target.y - e.pos.y, target.x - e.pos.x);
+    const sp = Math.min(d, e.speed * this.speedMul(e) * DT);
+    const next = moveWithCollision(this.nav, e.pos, Math.cos(e.facing) * sp, Math.sin(e.facing) * sp);
+    e.moving = next.x !== e.pos.x || next.y !== e.pos.y;
+    e.pos = next;
+  }
+
   private stepMinion(e: Entity): void {
     if (e.stunTicks > 0) { e.moving = false; return; }
+    const def = UNITS[e.unit ?? 'minion'];
+    // Leak: reaching the enemy Heartstone damages it (ignores hero-damage protection) and spends the unit.
+    const enemyHeart = [...this.entities.values()].find((h) => h.kind === 'heart' && h.team !== e.team);
+    if (enemyHeart && dist(enemyHeart.pos, e.pos) <= enemyHeart.radius + e.radius + 1.6) {
+      this.events.push({ e: 'leak', t: enemyHeart.team, n: def.leak, s: e.id });
+      this.entities.delete(e.id);
+      enemyHeart.hp -= def.leak;
+      this.events.push({ e: 'hit', s: e.id, d: enemyHeart.id, n: def.leak, k: 0 });
+      if (enemyHeart.hp <= 0) this.kill(enemyHeart, undefined);
+      return;
+    }
     if (e.action) { // wind-up of a swing
       if (--e.action.ticks <= 0) {
         const t = this.entities.get(e.target ?? -1);
-        if (t && this.targetable(t) && dist(t.pos, e.pos) <= MINION.range + t.radius + e.radius + 0.4) this.damage(t, e.damage, e, 0);
+        if (t && this.targetable(t) && dist(t.pos, e.pos) <= def.range + t.radius + e.radius + 0.4) this.damage(t, e.damage, e, 0);
         e.action = undefined;
       }
       return;
     }
     let t = e.target !== undefined ? this.entities.get(e.target) : undefined;
-    if (!t || !this.targetable(t) || dist(t.pos, e.pos) > MINION.leash) {
+    const structRange = (c: Entity) => c.kind === 'tower' || c.kind === 'bulwark';
+    if (!t || !this.targetable(t) || dist(t.pos, e.pos) > MINION.leash || (structRange(t) && dist(t.pos, e.pos) > 4 + t.radius)) {
       t = undefined; let bestD = MINION.aggro;
       for (const c of this.entities.values()) {
-        if (c.team === e.team || !this.targetable(c) || c.kind === 'projectile') continue;
-        const d = dist(c.pos, e.pos) - c.radius + (c.kind === 'hero' ? 2 : 0); // prefer minions/structures
+        if (c.team === e.team || !this.targetable(c) || c.kind === 'projectile' || c.kind === 'heart') continue;
+        const raw = dist(c.pos, e.pos) - c.radius;
+        if (structRange(c) && raw > 4) continue; // walk past structures unless they're right there
+        const d = raw + (c.kind === 'hero' ? 2 : 0) + (structRange(c) ? 1 : 0);
         if (d < bestD) { bestD = d; t = c; }
       }
       e.target = t?.id;
@@ -611,24 +756,190 @@ export class World {
     if (t) {
       const d = dist(t.pos, e.pos);
       e.facing = Math.atan2(t.pos.y - e.pos.y, t.pos.x - e.pos.x);
-      if (d <= MINION.range + t.radius + e.radius) {
+      if (d <= def.range + t.radius + e.radius) {
         e.moving = false;
-        if (e.atkTicks <= 0) { e.atkTicks = T(MINION.cooldown); e.action = { slot: 0, ticks: T(MINION.windup), aim: e.facing, tx: 0, ty: 0 }; this.events.push({ e: 'act', s: e.id, a: 0, y: round2(e.facing) }); }
+        if (e.atkTicks <= 0) { e.atkTicks = T(def.cooldown); e.action = { slot: 0, ticks: T(MINION.windup), aim: e.facing, tx: 0, ty: 0 }; this.events.push({ e: 'act', s: e.id, a: 0, y: round2(e.facing) }); }
         return;
       }
       const sp = e.speed * this.speedMul(e) * DT;
-      e.pos = moveWithCollision(this.nav, e.pos, Math.cos(e.facing) * sp, Math.sin(e.facing) * sp);
-      e.moving = true;
+      const next = moveWithCollision(this.nav, e.pos, Math.cos(e.facing) * sp, Math.sin(e.facing) * sp);
+      if (next.x === e.pos.x && next.y === e.pos.y) { this.flowStep(e); return; } // blocked by a wall: route via the maze
+      e.pos = next; e.moving = true;
       return;
     }
-    // March along the lane.
-    const pts = this.lanePoints(e.lane!, e.team);
-    if (e.path.length === 0) {
-      if (e.laneIdx! >= pts.length) { e.moving = false; return; }
-      e.path = [pts[e.laneIdx!]!];
-      e.laneIdx!++;
+    this.flowStep(e);
+  }
+
+  // ---- Bulwarks: build / upgrade / sell / send ----------------------------------------------
+
+  /** Static placement rules shared with the client's ghost preview. Returns a reason string or null. */
+  static siteProblem(w: { map: World['map']; nav: World['nav'] }, team: Team, x: number, y: number): string | null {
+    if (x % 2 !== 0 || y % 2 !== 0) return 'off grid';
+    const own = w.map.bases[team].pos, enemy = w.map.bases[team === 0 ? 1 : 0].pos;
+    if (dist({ x, y }, own) + ECON.territoryMargin > dist({ x, y }, enemy)) return 'outside your territory';
+    for (const t of [0, 1] as const) if (dist({ x, y }, w.map.bases[t].pos) < FORT_WALL_R + 2.5) return 'too close to a fort';
+    for (const c of w.nav.footprint(x, y)) if (!w.nav.walk[c] || w.nav.blocked[c]) return 'blocked ground';
+    if (w.nav.footprint(x, y).length !== 4) return 'blocked ground';
+    return null;
+  }
+
+  private tryBuild(h: Entity, kind: string, x: number, y: number): string | null {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return 'bad position';
+    const def = BULWARKS[kind as BulwarkType];
+    if (!def) return 'unknown structure';
+    if (h.deadTicks) return 'dead';
+    x = Math.round(x / 2) * 2; y = Math.round(y / 2) * 2;
+    if (h.gold! < def.levels[0].cost) return 'not enough gold';
+    if (dist(h.pos, { x, y }) > ECON.buildRange) return 'too far';
+    const site = World.siteProblem(this, h.team, x, y);
+    if (site) return site;
+    let count = 0;
+    for (const e of this.entities.values()) {
+      if (e.kind === 'bulwark' && e.team === h.team) count++;
+      if ((e.kind === 'hero' && !e.deadTicks) || e.kind === 'minion') if (Math.abs(e.pos.x - x) < 1 + e.radius && Math.abs(e.pos.y - y) < 1 + e.radius) return 'units in the way';
+      if (e.kind === 'bulwark' && e.pos.x === x && e.pos.y === y) return 'occupied';
     }
-    this.integrate(e);
+    if (count >= ECON.maxPerTeam) return 'structure limit reached';
+    const cells = this.nav.footprint(x, y);
+    if (def.blocks) {
+      this.nav.block(cells, true);
+      const goals = new Set(this.heartGoals[h.team]);
+      const enemyTeam = h.team === 0 ? 1 : 0;
+      const open = (['top', 'mid', 'bot'] as const).every((lane) => this.nav.reachable(this.lanePoints(lane, enemyTeam)[0]!, goals));
+      if (!open) { this.nav.block(cells, false); return 'would seal the lane — leave a path'; }
+      this.mazeChanged(h.team);
+    }
+    h.gold! -= def.levels[0].cost;
+    const lvl = def.levels[0];
+    const b = this.add({ kind: 'bulwark', team: h.team, pos: { x, y }, facing: h.team === 0 ? Math.PI / 4 : -3 * Math.PI / 4, radius: 1, speed: 0, hp: lvl.hp, maxHp: lvl.hp,
+      path: [], moving: false, damage: lvl.damage ?? 0, atkTicks: 0, stunTicks: 0, slowTicks: 0, slowPct: 0, hasteTicks: 0, hastePct: 0,
+      invulnerable: def.type === 'spikes', bw: { type: def.type, level: 1, owner: h.owner!, cells: def.blocks ? cells : [], charges: lvl.charges ?? 0 } });
+    this.events.push({ e: 'build', s: b.id, b: BULWARK_TYPES.indexOf(def.type), x, y });
+    return null;
+  }
+
+  private ownStructure(h: Entity, id: number): Entity | string {
+    const b = this.entities.get(id);
+    if (!b || b.kind !== 'bulwark' || b.team !== h.team) return 'not your structure';
+    if (h.deadTicks) return 'dead';
+    if (dist(b.pos, h.pos) > ECON.interactRange + 2) return 'too far';
+    return b;
+  }
+
+  private tryUpgrade(h: Entity, id: number): string | null {
+    const b = this.ownStructure(h, id);
+    if (typeof b === 'string') return b;
+    const def = BULWARKS[b.bw!.type];
+    if (b.bw!.level >= 3) return 'already at max level';
+    const next = def.levels[b.bw!.level]!;
+    if (h.gold! < next.cost) return 'not enough gold';
+    h.gold! -= next.cost;
+    const frac = b.hp / b.maxHp;
+    b.bw!.level++; b.maxHp = next.hp; b.hp = Math.max(1, Math.round(next.hp * frac)); b.damage = next.damage ?? 0;
+    if (next.charges) b.bw!.charges = next.charges;
+    this.events.push({ e: 'build', s: b.id, b: BULWARK_TYPES.indexOf(b.bw!.type), x: b.pos.x, y: b.pos.y, lv: b.bw!.level });
+    return null;
+  }
+
+  private trySell(h: Entity, id: number): string | null {
+    const b = this.ownStructure(h, id);
+    if (typeof b === 'string') return b;
+    h.gold! += Math.floor(investedIn(b.bw!.type, b.bw!.level) * ECON.sellRefund * (b.bw!.type === 'spikes' ? 1 : b.hp / b.maxHp));
+    this.events.push({ e: 'die', s: h.id, d: b.id });
+    this.removeBulwark(b);
+    return null;
+  }
+
+  private removeBulwark(b: Entity): void {
+    if (b.bw!.cells.length) { this.nav.block(b.bw!.cells, false); this.mazeChanged(b.team); }
+    this.entities.delete(b.id);
+  }
+
+  private trySend(h: Entity, unit: string, lane: string): string | null {
+    const s = SENDS[unit as SendType];
+    if (!s || !['top', 'mid', 'bot'].includes(lane)) return 'invalid send';
+    if (h.gold! < s.cost) return 'not enough gold';
+    const q = this.sendQueue[h.team][lane as LaneId];
+    if (q.length >= 12) return 'lane is full this wave';
+    h.gold! -= s.cost; h.income! += s.income;
+    for (let i = 0; i < s.count; i++) q.push(s.unit);
+    this.events.push({ e: 'send', s: h.id, u: unit, l: lane });
+    return null;
+  }
+
+  private stepBulwark(b: Entity): void {
+    const lvl = BULWARKS[b.bw!.type].levels[b.bw!.level - 1]!;
+    switch (b.bw!.type) {
+      case 'frost':
+        for (const t of this.entities.values()) {
+          if (t.team === b.team || !this.targetable(t) || (t.kind !== 'minion' && t.kind !== 'hero')) continue;
+          if (dist(t.pos, b.pos) > (lvl.aura ?? 6) + t.radius) continue;
+          if (t.slowTicks <= 2 || (lvl.slow ?? 0) >= t.slowPct) { t.slowTicks = Math.max(t.slowTicks, 3); t.slowPct = Math.max(lvl.slow ?? 0, t.slowTicks > 3 ? t.slowPct : 0); }
+          if (lvl.chillDps && this.tick % 10 === 0) this.damage(t, lvl.chillDps / 3, b, 2);
+        }
+        return;
+      case 'spikes': {
+        if (this.tick % 6 !== 0) return; // 5 Hz damage pulses
+        for (const t of this.entities.values()) {
+          if (t.team === b.team || !this.targetable(t) || (t.kind !== 'minion' && t.kind !== 'hero')) continue;
+          if (Math.abs(t.pos.x - b.pos.x) > 1.1 + t.radius * 0.5 || Math.abs(t.pos.y - b.pos.y) > 1.1 + t.radius * 0.5) continue;
+          this.damage(t, (lvl.trapDps ?? 20) / 5, b, 2);
+          if (--b.bw!.charges <= 0) { this.events.push({ e: 'die', s: 0, d: b.id }); this.removeBulwark(b); return; }
+        }
+        return;
+      }
+      case 'palisade': return;
+      case 'arrow': case 'fire': {
+        if (b.atkTicks > 0) return;
+        let best: Entity | undefined, bestScore = Infinity;
+        for (const c of this.entities.values()) {
+          if (c.team === b.team || !this.targetable(c) || (c.kind !== 'minion' && c.kind !== 'hero')) continue;
+          const d = dist(c.pos, b.pos);
+          if (d > (lvl.range ?? 10) + c.radius || d < (lvl.minRange ?? 0)) continue;
+          const score = d + (c.kind === 'hero' ? 6 : 0); // TD convention: waves first
+          if (score < bestScore) { bestScore = score; best = c; }
+        }
+        if (!best) return;
+        b.atkTicks = T(lvl.cooldown ?? 1);
+        const aim = Math.atan2(best.pos.y - b.pos.y, best.pos.x - b.pos.x);
+        b.facing = aim;
+        this.events.push({ e: 'act', s: b.id, a: 0, y: round2(aim) });
+        if (b.bw!.type === 'arrow') this.spawnProjectile(b, aim, 40, (lvl.range ?? 12) + 4, lvl.damage ?? 30, 0.3, undefined, 'arrow', best.id);
+        else {
+          // Lobbed fire: lands where the target is now after a flight time (dodgeable), splashes.
+          const d = dist(best.pos, b.pos);
+          this.aoes.push({ owner: b.id, team: b.team, x: best.pos.x, y: best.pos.y, ticks: T(0.35 + d / 18), dmg: lvl.damage ?? 50, r: lvl.splash ?? 2.5, burn: lvl.burn });
+          this.events.push({ e: 'lob', s: b.id, x: round2(best.pos.x), y: round2(best.pos.y), d: round2(0.35 + d / 18) });
+        }
+        return;
+      }
+    }
+  }
+
+  private stepBurns(): void {
+    for (const bn of [...this.burns]) {
+      if (--bn.ticks <= 0) { this.burns.splice(this.burns.indexOf(bn), 1); continue; }
+      if (this.tick % 10 !== 0) continue;
+      const src = this.entities.get(bn.owner);
+      for (const t of this.entities.values()) {
+        if (t.team === bn.team || !this.targetable(t) || (t.kind !== 'minion' && t.kind !== 'hero')) continue;
+        if (dist(t.pos, bn) <= bn.r + t.radius) this.damage(t, bn.dps / 3, src, 2);
+      }
+    }
+  }
+
+  /** Gold: last-hitting hero (or the owner of the structure that killed it) gets the bounty; otherwise nearby heroes share. */
+  private payBounty(t: Entity, src: Entity | undefined): void {
+    let bounty = 0;
+    if (t.kind === 'minion') bounty = UNITS[t.unit ?? 'minion'].bounty;
+    else if (t.kind === 'hero') bounty = ECON.heroBounty;
+    else if (t.kind === 'bulwark') bounty = Math.round(investedIn(t.bw!.type, t.bw!.level) * ECON.bulwarkBountyFrac);
+    else if (t.kind === 'tower') { for (const h of this.entities.values()) if (h.kind === 'hero' && h.team !== t.team) h.gold! += ECON.gateTowerTeam; return; }
+    if (!bounty) return;
+    const credit = src?.kind === 'hero' ? src : src?.kind === 'bulwark' ? this.heroOf(src.bw!.owner) : undefined;
+    if (credit && credit.team !== t.team) { credit.gold! += bounty; this.events.push({ e: 'gold', s: credit.id, n: bounty, d: t.id }); return; }
+    const near = [...this.entities.values()].filter((h) => h.kind === 'hero' && h.team !== t.team && !h.deadTicks && dist(h.pos, t.pos) < ECON.shareRadius);
+    for (const h of near) h.gold! += (bounty * ECON.bountyShare) / near.length;
   }
 
   private integrate(e: Entity): void {
@@ -672,7 +983,10 @@ export class World {
   /** Clear the battlefield and restart with the same players (heroes keep their pick, reset to level 1). */
   resetMatch(): void {
     const heroes = [...this.entities.values()].filter((e) => e.kind === 'hero');
-    this.entities.clear(); this.aoes = []; this.winner = null;
+    this.entities.clear(); this.aoes = []; this.burns = []; this.winner = null; this.wave = 0;
+    this.nav.blocked.fill(0); this.flowDirty = true;
+    this.sendQueue = { 0: { top: [], mid: [], bot: [] }, 1: { top: [], mid: [], bot: [] } };
+    this.matchStart = this.tick + 1;
     this.spawnStructures();
     for (const h of heroes) {
       const n = this.spawnHero(h.owner!, h.team, h.heroId, h.bot);
@@ -688,6 +1002,6 @@ export class World {
   }
 }
 
-const KIND_CODE: Record<EntityKind, EntitySnapshot['k']> = { hero: 0, minion: 1, tower: 2, projectile: 3, heart: 4 };
+const KIND_CODE: Record<EntityKind, EntitySnapshot['k']> = { hero: 0, minion: 1, tower: 2, projectile: 3, heart: 4, bulwark: 5 };
 const round2 = (v: number) => Math.round(v * 100) / 100;
 export type { HeroDef };

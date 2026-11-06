@@ -1,6 +1,6 @@
 # Core Twist — Four Candidate Concepts
 
-**Status: AWAITING DIRECTOR/STAKEHOLDER SELECTION.** Core gameplay implementation is paused on this decision.
+**Status: SUPERSEDED.** The stakeholder chose **MOBA + tower defence** — see `TWIST_BULWARKS.md`. Kept for reference.
 Everything built so far (deterministic sim, netcode skeleton, renderer, art direction) is twist-agnostic.
 
 > **Update (direction change):** the game is now a third-person / first-person **action MOBA** with grounded

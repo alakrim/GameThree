@@ -9,3 +9,4 @@ export * from './terrain.js';
 export * from './movement.js';
 export * from './heroes.js';
 export * from './bot.js';
+export * from './bulwarks.js';

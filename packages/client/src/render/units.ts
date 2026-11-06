@@ -14,8 +14,9 @@ export class UnitView {
   private yaw = 0;
   private last = new THREE.Vector3();
   private speed = 0;
-  constructor(readonly id: number, readonly team: 0 | 1, readonly isHero: boolean, ally: boolean, readonly isLocal: boolean, readonly heroId?: string) {
-    this.character = new Character({ team, role: isHero ? 'hero' : 'minion', heroId });
+  constructor(readonly id: number, readonly team: 0 | 1, readonly isHero: boolean, ally: boolean, readonly isLocal: boolean, readonly heroId?: string, unit?: string) {
+    const scale = unit === 'troll' ? 2.3 : unit === 'brute' ? 1.4 : undefined;
+    this.character = new Character({ team, role: isHero ? 'hero' : 'minion', heroId, scale });
     this.root.add(this.character.root);
     const w = isHero ? 1.0 : 0.6, h = isHero ? 0.09 : 0.06;
     const bg = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.04, h + 0.04), new THREE.MeshBasicMaterial({ color: 0x0b0b0e, depthTest: false, transparent: true, opacity: 0.75 }));
@@ -23,7 +24,8 @@ export class UnitView {
     this.fill.position.set(-w / 2, 0, 0.001);
     bg.renderOrder = 20; this.fill.renderOrder = 21;
     this.bar.add(bg, this.fill);
-    this.bar.position.y = isHero ? 2.45 : 1.95;
+    this.bar.position.y = isHero ? 2.45 : 1.95 * (scale ? scale / 0.9 : 1);
+    if (scale) this.bar.scale.x = 1.6;
     this.bar.visible = !isLocal; // local player's health lives on the HUD
     this.root.add(this.bar);
   }

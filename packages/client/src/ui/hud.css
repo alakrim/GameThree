@@ -84,3 +84,54 @@ body.dead #game { filter: grayscale(.85) brightness(.75); transition: filter .6s
 .tb .cd { position: absolute; inset: 0; background: conic-gradient(#000c var(--p, 0%), transparent 0); display: grid; place-items: center; }
 @media (pointer: fine) { .tbtns { display: none; } }
 @media (pointer: coarse) { .abilities { display: none; } .help { display: none; } }
+
+/* ---- Bulwarks (tower defence) ---- */
+.td { position: absolute; inset: 0; pointer-events: none; }
+.treasury { position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: max(26px, env(safe-area-inset-bottom)); display: flex; align-items: baseline; gap: 6px; font: 700 20px Cinzel, serif; color: #f2d48a; text-shadow: 0 1px 3px #000; }
+.treasury small { font: 600 11px Inter; color: var(--muted); letter-spacing: .06em; }
+.treasury .coin { width: 14px; height: 14px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff2b8, #c9a24b 60%, #7a5a1e); box-shadow: 0 0 0 1px #000a; align-self: center; }
+.waveclock { position: absolute; top: calc(max(14px, env(safe-area-inset-top)) + 40px); left: 50%; transform: translateX(-50%); display: flex; gap: 10px; font: 600 11px Inter; letter-spacing: .14em; text-transform: uppercase; color: var(--bone); text-shadow: 0 1px 3px #000; }
+.waveclock .w { font-family: Cinzel, serif; color: #f2d48a; }
+.waveclock .t { color: var(--muted); }
+.hearts { position: absolute; top: calc(max(14px, env(safe-area-inset-top)) + 62px); left: 50%; transform: translateX(-50%); display: flex; gap: 18px; }
+.hrow { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.hl { font: 600 9px Inter; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); text-shadow: 0 1px 2px #000; }
+.hbar { width: 120px; height: 6px; background: #0c0d10cc; border: 1px solid #c8bfa640; }
+.hbar > i { display: block; height: 100%; width: 100%; transition: width .3s; }
+.hbar.ally > i { background: linear-gradient(90deg, #8a6a2a, #f2c46b); } .hbar.foe > i { background: linear-gradient(90deg, #7a2240, var(--hostile)); }
+.buildbar { position: absolute; left: 50%; bottom: max(130px, calc(env(safe-area-inset-bottom) + 118px)); transform: translate(-50%, 12px); display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; width: min(560px, calc(100vw - 24px)); opacity: 0; transition: opacity .2s, transform .2s; pointer-events: none; }
+.buildbar.open { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.bslot { position: relative; width: 98px; padding: 8px 6px 6px; border: 1px solid #8c826c; background: linear-gradient(#2a2c33, #141519); color: var(--bone); font: 600 11px Inter; text-align: center; cursor: pointer; }
+.bslot .k { position: absolute; left: 4px; top: 2px; font-size: 9px; color: var(--muted); }
+.bslot .n { display: block; }
+.bslot .c { display: block; font: 700 12px Inter; color: #f2d48a; margin-top: 2px; }
+.bslot.sel { border-color: #f2d48a; box-shadow: 0 0 0 1px #f2d48a, 0 0 14px #f2d48a55; }
+.bslot.poor .c { color: #b0504a; }
+.bhelp { width: 100%; text-align: center; font: 500 10px Inter; color: var(--muted); letter-spacing: .06em; text-shadow: 0 1px 2px #000; }
+body.building .reticle { width: 10px; height: 10px; margin: -5px; background: transparent; border: 2px solid #f2d48a; border-radius: 0; transform: rotate(45deg); }
+.wartable { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -46%); width: min(440px, calc(100vw - 32px)); padding: 18px; background: linear-gradient(#1b1d23f2, #111216f2); border: 1px solid #c9a24b; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; }
+.wartable.open { opacity: 1; transform: translate(-50%, -50%); pointer-events: auto; }
+.wartable h3 { margin: 0; font: 700 20px Cinzel, serif; letter-spacing: .1em; }
+.wartable p { margin: 4px 0 12px; font: 400 12px Inter; color: var(--muted); }
+.srow { display: flex; align-items: center; gap: 6px; padding: 8px 0; border-top: 1px solid #c8bfa61f; }
+.sinfo { flex: 1; } .sinfo b { display: block; font: 700 13px Inter; } .sinfo small { font: 500 11px Inter; color: #f2d48a; }
+.sbtn, .sclose { padding: 8px 10px; border: 1px solid #8c826c; background: #24262c; color: var(--bone); font: 700 11px Inter; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+.sbtn:disabled { opacity: .4; cursor: default; }
+.sclose { margin-top: 10px; width: 100%; }
+.tip { position: absolute; left: 50%; top: calc(50% + 26px); transform: translateX(-50%); padding: 6px 12px; background: #0c0d10d9; border: 1px solid #c8bfa659; font: 500 12px Inter; white-space: nowrap; opacity: 0; transition: opacity .15s; }
+.tip kbd { font: 700 10px Inter; border: 1px solid #c8bfa666; border-radius: 3px; padding: 0 4px; margin: 0 2px; }
+.tip b { color: #f2d48a; }
+.toasts { position: absolute; right: max(14px, env(safe-area-inset-right)); top: calc(max(14px, env(safe-area-inset-top)) + 54px); display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.toast { padding: 5px 10px; background: #0c0d10d9; border-left: 2px solid #8c826c; font: 600 12px Inter; transition: opacity .5s; }
+.toast.bad { border-color: var(--hostile); color: #ffb3c7; } .toast.good { border-color: #7fb069; } .toast.gold { border-color: #f2d48a; color: #f2d48a; }
+.banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; }
+.banner.show { animation: banner 2.6s ease forwards; }
+.banner h2 { margin: 0; font: 700 clamp(22px, 4vw, 36px) Cinzel, serif; letter-spacing: .2em; text-shadow: 0 2px 10px #000; }
+.banner p { margin: 4px 0 0; font: 600 11px Inter; letter-spacing: .24em; text-transform: uppercase; color: var(--muted); }
+@keyframes banner { 0% { opacity: 0; transform: translate(-50%, 8px); } 12% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
+.tdbtns { position: absolute; left: max(14px, env(safe-area-inset-left)); bottom: max(64px, calc(env(safe-area-inset-bottom) + 52px)); display: flex; gap: 8px; pointer-events: auto; }
+.tdb { padding: 9px 12px; border: 1px solid #8c826c; background: #1b1d23e6; color: var(--bone); font: 700 10px Inter; letter-spacing: .12em; }
+.tdb.tb-place { display: none; border-color: #f2d48a; color: #f2d48a; }
+body.building .tdb.tb-place { display: inline-block; }
+@media (pointer: fine) { .tdbtns { display: none; } }
+@media (pointer: coarse) { .treasury { bottom: auto; top: calc(max(14px, env(safe-area-inset-top)) + 40px); left: max(14px, env(safe-area-inset-left)); font-size: 16px; } .hearts { display: none; } }

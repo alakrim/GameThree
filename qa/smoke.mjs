@@ -46,7 +46,21 @@ for (const [name, url, vp] of [
   const fired = [];
   for (const slot of [0, 1, 2, 3]) { fired.push(await page.evaluate((s) => window.__lumen.fire(s), slot)); await page.waitForTimeout(1500); }
   const heroes = await page.evaluate(() => [...window.__lumen.views.values()].filter((v) => v.isHero).length);
-  const combatOk = fired.every(Boolean) && heroes === 6;
+  // Tower defence: build a Watch Tower between the fort and the valley centre through the real network path.
+  const built = await page.evaluate(async () => {
+    const L = window.__lumen, me = L.mine, fort = L.map.bases[L.me.team].pos;
+    const dx = -fort.x, dy = -fort.y, l = Math.hypot(dx, dy);
+    for (const r of [17, 19, 21, 23]) for (const side of [0, 3, -3, 6, -6]) {
+      const x = Math.round((fort.x + (dx / l) * r - (dy / l) * side) / 2) * 2, y = Math.round((fort.y + (dy / l) * r + (dx / l) * side) / 2) * 2;
+      if (Math.hypot(x - me.x, y - me.y) > 13) continue;
+      L.transport.send({ type: 'build', kind: 'arrow', x, y });
+      await new Promise((res) => setTimeout(res, 2500));
+      if (L.bulwarkViews.size > 0 && [...L.bulwarkViews.values()].some((b) => b.team === L.me.team)) return true;
+    }
+    return false;
+  });
+  const combatOk = fired.every(Boolean) && heroes === 6 && built;
+  if (!built) errors.push('build failed');
   if (!combatOk) errors.push(`combat: fired=${fired} heroes=${heroes}`);
   await page.screenshot({ path: `${out}/${name}.png`, timeout: 180000 });
   const moved = Math.hypot(p1.x - p0.x, p1.y - p0.y);

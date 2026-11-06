@@ -31,7 +31,7 @@ export class Hud {
       <div class="stats"></div>
       <div class="overlay-msg"><h2></h2><p></p></div>
       <div class="prompt">${touch ? 'Left thumb: move · Right thumb: look' : 'Click to take control'}</div>
-      <div class="help">${touch ? '' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>LMB</kbd> attack &nbsp; <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd> abilities &nbsp; <kbd>Wheel</kbd> zoom &nbsp; <kbd>V</kbd> view &nbsp; <kbd>Esc</kbd> release'}</div>
+      <div class="help">${touch ? '' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>LMB</kbd> attack &nbsp; <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd> abilities &nbsp; <kbd>B</kbd>/<kbd>1-5</kbd> build &nbsp; <kbd>G</kbd> war table &nbsp; <kbd>Wheel</kbd> zoom &nbsp; <kbd>V</kbd> view &nbsp; <kbd>Esc</kbd> release'}</div>
       <div class="tbtns"></div>
       <button class="btn">VIEW</button>`;
     this.compass = root.querySelector('.compass')!;

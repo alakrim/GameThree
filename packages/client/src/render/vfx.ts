@@ -141,6 +141,23 @@ export class Vfx {
     slot.l.position.copy(p); slot.l.color.setHex(color); slot.t = 0; slot.dur = dur; slot.i0 = intensity;
   }
 
+  /** Catapult shot: burning projectile on a ballistic arc landing after `dur` seconds. */
+  lob(from: THREE.Vector3, to: THREE.Vector3, dur: number) {
+    const f = makeFire(0.55);
+    const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 0), new THREE.MeshStandardMaterial({ color: 0x2a1a10, emissive: 0xff6a1a, emissiveIntensity: 2.2, roughness: 0.8 }));
+    const g = new THREE.Group(); g.add(core, f);
+    const h = 4 + from.distanceTo(to) * 0.25;
+    let acc = 0;
+    this.add(g, Math.max(0.1, dur), (p, dt) => {
+      g.position.lerpVectors(from, to, p); g.position.y += Math.sin(p * Math.PI) * h;
+      core.rotation.x += dt * 8;
+      acc += dt; if (acc > 0.02) { acc = 0; this.emit(g.position, 2, { color: 0xff8a3a, speed: 0.5, up: 0.4, life: 0.5, size: 0.4, gravity: -1.5 }); }
+    }, () => { core.geometry.dispose(); (core.material as THREE.Material).dispose(); });
+  }
+
+  /** Thin golden coin burst for gold gains. */
+  coins(p: THREE.Vector3, n = 6) { this.emit(p, n, { color: 0xffd27a, speed: 2.4, up: 3, life: 0.7, size: 0.14, gravity: 7 }); }
+
   levelUp(p: THREE.Vector3) {
     for (let k = 0; k < 40; k++) this.emit(new THREE.Vector3(p.x + Math.cos(k) * 0.8, p.y + Math.random() * 0.3, p.z + Math.sin(k) * 0.8), 1, { color: 0xffd27a, speed: 2.2, up: 6, life: 1.1, size: 0.18, gravity: -1.5, dir: new THREE.Vector3(0, 1, 0) });
     this.flash(p.clone().setY(p.y + 1.5), 0xffd27a, 20, 0.6);
@@ -220,6 +237,10 @@ export class ProjectileView {
     if (fx === 'ice_lance') {
       const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0).scale(3.2, 0.6, 0.6), new THREE.MeshStandardMaterial({ color: 0xd8f4ff, emissive: 0x58c8ff, emissiveIntensity: 2.4, roughness: 0.1 }));
       this.root.add(m);
+    } else if (fx === 'arrow') {
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 4).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.9 }));
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 4).rotateZ(-Math.PI / 2).translate(0.62, 0, 0), new THREE.MeshStandardMaterial({ color: 0x9a9a9a, metalness: 1, roughness: 0.5 }));
+      this.root.add(shaft, tip);
     } else if (fx === 'tower_bolt') {
       const f = makeFire(0.45); f.position.y = -0.35; this.root.add(f);
     } else {
@@ -233,6 +254,7 @@ export class ProjectileView {
     this.emitT -= dt;
     if (this.emitT <= 0) {
       this.emitT = 0.016;
+      if (this.fx === 'arrow') return; // arrows don't leave a magic trail
       const col = this.fx === 'tower_bolt' ? 0xff9a3a : 0x9fdcff;
       this.vfx.emit(p, this.fx === 'ice_lance' ? 3 : 2, { color: col, speed: 0.5, up: 0.5, life: 0.35, size: this.fx === 'tower_bolt' ? 0.35 : 0.25, gravity: this.fx === 'tower_bolt' ? -2 : 0.5 });
     }

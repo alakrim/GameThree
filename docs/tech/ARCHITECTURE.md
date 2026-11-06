@@ -58,6 +58,24 @@ offset, boom shortened by terrain collision. Movement is direct analog input rel
   The client releases each event when interpolated render time reaches its tick, so VFX/SFX line up with motion;
   the local player's own actions play instantly on input.
 
+## Bulwarks (core twist: MOBA + tower defence)
+
+Design: `docs/design/TWIST_BULWARKS.md`. Data: `shared/src/bulwarks.ts`. Logic: `World` (build/upgrade/sell/send,
+`stepBulwark`, flow-field minions, leaks, bounties) and `BotBrain.economy`.
+
+- **Dynamic navigation:** structures occupy a 2 m × 2 m footprint on the 1 m nav grid via a reference-counted
+  `blocked` layer. Clients mirror it from snapshots, so prediction never walks through a palisade.
+- **Mazing:** wave units follow one of six flow fields (attacker team × lane), computed by a weighted Dijkstra
+  toward the defender's Heartstone. Off-lane cells cost 3×, so waves stay in their lane and wind through mazes,
+  detouring through the forest only when a lane is heavily walled. Typed-array heap, no allocation in the hot loop:
+  ~4.5 ms per field. Changes only dirty the 3 fields of the attacking team, and at most one field is rebuilt per
+  tick (worst steady-state tick ≈ 16 ms in a 5-minute 3v3 with bots building).
+- **No sealing:** a blocking placement is accepted only if every enemy lane spawn can still reach the Heartstone (BFS).
+- **Server validation:** grid snap, own territory (≥ 10 m closer to own Heartstone), not near forts, free ground,
+  no units in the footprint, within 14 m of the builder, gold, per-team cap. Refusals return a `deny` event with a reason.
+- **Economy:** passive gold, per-wave income (raised by sends), last-hit bounties (structures credit their owner),
+  shared bounties otherwise. Leaks damage the Heartstone directly; heroes can hit it only after a gate tower falls.
+
 ## Netcode
 
 - **Input:** the client sends one `input {seq, mx, my}` per 30 Hz tick (idle inputs suppressed after 3). The server

@@ -4,7 +4,9 @@ Browser-first, server-authoritative **third-person action MOBA** set in **the Sk
 valley where two clans hold barrow-forts at opposite ends. Visual direction: **"Frost & Hearthfire"** — grounded,
 atmospheric open-world-RPG realism (see `docs/art/ART_BIBLE.md`).
 
-> Current stage: **M0 Foundation**. Core gameplay twist pending selection — see `docs/design/TWIST_CONCEPTS.md`.
+> Core twist: **MOBA + tower defence ("Bulwarks")** — heroes fight in the lanes *and* fortify them: build and upgrade
+> towers, totems, catapults, palisades and traps, maze the enemy's waves, and send wolves and brutes into theirs.
+> See `docs/design/TWIST_BULWARKS.md`.
 
 ## Run
 
@@ -19,6 +21,8 @@ URL options: `?quality=low|medium|high`, `?server=ws://host:port`.
 
 Controls — desktop: click to capture the mouse, WASD move, mouse look, LMB attack (hold to keep swinging), Q/E/R abilities (ground-targeted ones: hold to aim, release to cast), wheel zoom (all the way in = first person), V toggles 1st/3rd person, Esc releases.
 Touch: left thumb = virtual stick, right thumb = look, attack/ability buttons on the right, VIEW toggles 1st/3rd person.
+
+Bulwarks: B (or 1–5) opens the build bar, LMB places the ghost (green = valid), RMB/B cancels; look at your structure and press U to upgrade, X to sell; G opens the war table to send units. Touch: BUILD / SEND / PLACE buttons.
 
 You play a 3v3 against bots offline; online, humans replace bots as they join. URL `?hero=hrodvar|sigrun` skips the picker.
 
@@ -36,7 +40,8 @@ node qa/smoke.mjs      # browser smoke test (needs dev client + server running a
 
 ## Docs
 
-- `docs/design/TWIST_CONCEPTS.md` — the four core-mechanic candidates
+- `docs/design/TWIST_BULWARKS.md` — the core twist (MOBA + tower defence)
+- `docs/design/TWIST_CONCEPTS.md` — the original four core-mechanic candidates
 - `docs/design/HEROES.md` — 15-hero roster, launch slice, balance framework
 - `docs/art/ART_BIBLE.md` — art bible
 - `docs/tech/ARCHITECTURE.md` — architecture, netcode, rendering, budgets

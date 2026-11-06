@@ -6,11 +6,14 @@ export class NavGrid {
   readonly size: number;
   readonly origin: number;
   readonly walk: Uint8Array;
+  /** Runtime blockers (player-built structures), reference-counted per cell. */
+  readonly blocked: Uint8Array;
 
   constructor(map: MapDef, readonly cell = 1, clearance = 0.6) {
     this.size = Math.ceil((map.half * 2) / cell);
     this.origin = -map.half;
     this.walk = new Uint8Array(this.size * this.size);
+    this.blocked = new Uint8Array(this.size * this.size);
     for (let gy = 0; gy < this.size; gy++) {
       for (let gx = 0; gx < this.size; gx++) {
         const p = this.toWorld(gx, gy);
@@ -28,7 +31,90 @@ export class NavGrid {
   toWorld(gx: number, gy: number): Vec2 { return { x: this.origin + (gx + 0.5) * this.cell, y: this.origin + (gy + 0.5) * this.cell }; }
   toCell(p: Vec2): [number, number] { return [Math.floor((p.x - this.origin) / this.cell), Math.floor((p.y - this.origin) / this.cell)]; }
   inBounds(gx: number, gy: number): boolean { return gx >= 0 && gy >= 0 && gx < this.size && gy < this.size; }
-  isWalkableCell(gx: number, gy: number): boolean { return this.inBounds(gx, gy) && this.walk[gy * this.size + gx] === 1; }
+  isWalkableCell(gx: number, gy: number): boolean { const i = gy * this.size + gx; return this.inBounds(gx, gy) && this.walk[i] === 1 && this.blocked[i] === 0; }
+  /** Static terrain walkability only (ignores player structures). */
+  isStaticWalkable(p: Vec2): boolean { const [x, y] = this.toCell(p); return this.inBounds(x, y) && this.walk[y * this.size + x] === 1; }
+
+  /** Cells covered by a 2 m x 2 m structure centred on a 2 m grid point. */
+  footprint(x: number, y: number): number[] {
+    const out: number[] = [];
+    const [cx, cy] = this.toCell({ x: x - 1 + 0.01, y: y - 1 + 0.01 });
+    for (let dy = 0; dy < 2; dy++) for (let dx = 0; dx < 2; dx++) if (this.inBounds(cx + dx, cy + dy)) out.push((cy + dy) * this.size + cx + dx);
+    return out;
+  }
+  block(cells: number[], on: boolean) { for (const c of cells) this.blocked[c] = Math.max(0, this.blocked[c]! + (on ? 1 : -1)); }
+
+  /**
+   * Weighted Dijkstra distance field toward `goals` (cell indices). Cells where `cost(i)` is larger are avoided
+   * (used to keep minions in their lane corridor). Infinity = unreachable.
+   */
+  flowField(goals: number[], cost: Uint8Array): Float32Array {
+    const n = this.size, N = n * n, dist = new Float32Array(N).fill(Infinity);
+    // Passability snapshot (static walk && no structure) — avoids per-neighbour bounds/method calls.
+    const pass = new Uint8Array(N);
+    for (let i = 0; i < N; i++) pass[i] = this.walk[i]! & (this.blocked[i] === 0 ? 1 : 0);
+    // Preallocated typed binary heap (lazy deletion). Hot loop is allocation-free.
+    const cap = N * 4;
+    const hk = new Float32Array(cap), hv = new Int32Array(cap);
+    let size = 0;
+    const push = (v: number, k: number) => {
+      if (size >= cap) return; // cannot happen in practice (each cell improves a bounded number of times)
+      let i = size++;
+      while (i > 0) { const p = (i - 1) >> 1; if (hk[p]! <= k) break; hk[i] = hk[p]!; hv[i] = hv[p]!; i = p; }
+      hk[i] = k; hv[i] = v;
+    };
+    for (const g of goals) { dist[g] = 0; push(g, 0); }
+    const D = Math.SQRT2;
+    while (size > 0) {
+      const key = hk[0]!, cur = hv[0]!;
+      // pop
+      const lk = hk[--size]!, lv = hv[size]!;
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1; let m = i, mk = lk;
+        if (l < size && hk[l]! < mk) { m = l; mk = hk[l]!; }
+        if (r < size && hk[r]! < mk) m = r;
+        if (m === i) break;
+        hk[i] = hk[m]!; hv[i] = hv[m]!; i = m;
+      }
+      if (size > 0) { hk[i] = lk; hv[i] = lv; }
+      const cd = dist[cur]!;
+      if (key > cd + 1e-4) continue; // stale
+      const cx = cur % n;
+      const pl = cx > 0 && pass[cur - 1] === 1, pr = cx < n - 1 && pass[cur + 1] === 1;
+      const pu = cur >= n && pass[cur - n] === 1, pd = cur < N - n && pass[cur + n] === 1;
+      let ni: number, nd: number;
+      if (pl) { ni = cur - 1; nd = cd + cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pr) { ni = cur + 1; nd = cd + cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pu) { ni = cur - n; nd = cd + cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pd) { ni = cur + n; nd = cd + cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      // Diagonals only when both adjacent orthogonals are open (no corner cutting).
+      if (pl && pu && pass[cur - n - 1] === 1) { ni = cur - n - 1; nd = cd + D * cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pr && pu && pass[cur - n + 1] === 1) { ni = cur - n + 1; nd = cd + D * cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pl && pd && pass[cur + n - 1] === 1) { ni = cur + n - 1; nd = cd + D * cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+      if (pr && pd && pass[cur + n + 1] === 1) { ni = cur + n + 1; nd = cd + D * cost[ni]!; if (nd < dist[ni]!) { dist[ni] = nd; push(ni, nd); } }
+    }
+    return dist;
+  }
+
+  /** Unweighted reachability: can `from` reach any goal cell? (used to forbid fully blocking a lane) */
+  reachable(from: Vec2, goals: Set<number>): boolean {
+    const n = this.size;
+    const start = this.nearestWalkable(from, 4);
+    if (!start) return false;
+    const [sx, sy] = this.toCell(start);
+    const N = n * n, seen = new Uint8Array(N), q = new Int32Array(N);
+    let head = 0, tail = 0;
+    q[tail++] = sy * n + sx; seen[sy * n + sx] = 1;
+    while (head < tail) {
+      const cur = q[head++]!;
+      if (goals.has(cur)) return true;
+      const cx = cur % n;
+      const nb = [cx > 0 ? cur - 1 : -1, cx < n - 1 ? cur + 1 : -1, cur >= n ? cur - n : -1, cur < N - n ? cur + n : -1];
+      for (const ni of nb) if (ni >= 0 && !seen[ni] && this.walk[ni] === 1 && this.blocked[ni] === 0) { seen[ni] = 1; q[tail++] = ni; }
+    }
+    return false;
+  }
   isWalkable(p: Vec2): boolean { const [x, y] = this.toCell(p); return this.isWalkableCell(x, y); }
 
   /** Supercover-ish line test via sampling at quarter-cell steps. */
@@ -114,6 +200,7 @@ class MinHeap {
   private ids: number[] = [];
   private keys: number[] = [];
   get size() { return this.ids.length; }
+  peekKey(): number { return this.keys[0]!; }
   push(id: number, key: number) {
     const ids = this.ids, keys = this.keys;
     let i = ids.length; ids.push(id); keys.push(key);
