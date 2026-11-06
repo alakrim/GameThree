@@ -299,4 +299,5 @@ Decisions taken while implementing the launch-slice heroes, items and the first 
 Bot behaviour added for these systems: kit-aware casting, Mystic duo-laning with the ranged carry, item budget
 (one item about every three minutes; bulwark spending leaves room for the next item), Hearth Recall to shop,
 repairs when no enemy is near, no futile builds at the cap, and a team siege of the weakest enemy lane from minute 12
-or once a gate tower has fallen.
+or once a gate tower has fallen. Bot decision randomness is seeded from the match seed: seeding it from bot ids alone
+replayed identical per-side choices every match and showed up as a 35% Dawn win rate in mirrored-pair tests.
