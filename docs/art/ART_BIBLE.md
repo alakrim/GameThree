@@ -1,314 +1,281 @@
 # Project Lumen: Art Bible
 
-**Version:** 1.0 (art direction locked)
+**Version:** 2.0 (direction pivot: Frost & Hearthfire)
 **Owner:** Art Director
-**Applies to:** all heroes, minions, environment, VFX, UI, and renderer configuration
+**Applies to:** the Skarnveld map, heroes, minions, environment, VFX, UI, camera, renderer
 
-> **Status note.** The central gameplay twist is still being selected. This bible defines the visual direction that does not depend on that choice. Section-specific adaptations (mechanic-driven VFX, objective art, state-dependent UI) will be appended after selection. Where a rule below must change for the twist, the appendix will say so explicitly.
+> **Status note.** The core gameplay twist is still pending selection. This bible fixes the visual direction, which does not depend on that choice. Mechanic-driven adaptations (objective art, state-dependent VFX and UI) will be appended after selection. Where a rule must change for the twist, the appendix will say so.
 
 ---
 
 ## 1. Vision & Pillars
 
-Project Lumen is a browser-first 3D MOBA that looks like a lacquered object brought to life. Players move game pieces across a painted board that glows from within.
+Project Lumen is a browser-first 3D MOBA in a cold, vast, weathered northern wilderness. Two clans fight across a high valley where warmth exists only as carried or built fire.
 
-**Visual pillar: "Lacquer & Light."**
+**Visual pillar: "Frost & Hearthfire."**
 
-- **Lacquer:** surfaces are glossy, layered, and hand-finished. Think enamel, lacquered wood, carved stone, and gold-leaf inlay.
-- **Light:** the world is lit like paper lanterns over dark water. Light is the signal. Heroes and abilities carry it; the environment recedes.
+- **Frost:** the world is cold, large, and old. Snow, stone, pine, and mist fill the frame, and distance is measured in haze.
+- **Hearthfire:** warmth is a signal. Braziers, torches, lanterns, and banners are the only warm light sources.
 
-Supporting principles, in priority order:
+**Look target:** grounded PBR realism with painterly atmosphere. Surfaces are believable, never photographed; aerial perspective and height fog do the work that fine detail would otherwise do.
 
-1. **Readable first.** If a style choice costs readability, readability wins.
-2. **Stylized, not sketchy.** Apply the same graphic rules everywhere.
-3. **Runs everywhere.** A mid-range phone in a browser is the baseline, not a stretch goal.
+**Priorities:** (1) readable at third-person distance; (2) grounded, not grimy; (3) runs on a mid-range phone in a browser.
 
-## 2. Setting & World Tone
+## 2. Setting & Tone
 
-The **Shoals of Aurel** is a mythic archipelago of floating islands above a sea of luminous cloud. The tone is ceremonial and quietly wondrous, not grim. Ruins are old and cared for: stone is weathered, lacquer is chipped but kept, gold leaf is worn at the edges.
+**The Skarnveld** is a high mountain valley ringed by snow-capped peaks. A glacial river runs diagonally from the north-west corner to the south-east corner. Pine forest covers the valley floor, with mossy boulders throughout. Carved standing stones and ruined barrow-forts belong to the Oru-Taen, a forgotten people with no living heirs. The clans now holding the valley build on their ruins without fully understanding them.
 
-| Use | Avoid |
-|---|---|
-| Rounded forms, stepped terraces, symmetrical shrines | Photographic textures, grime, dirt decals |
-| Paper lanterns and braziers as visible light sources | Realistic fur, skin pores, cloth weave |
-| Lacquer, enamel, gold leaf, carved stone, silk banners | Chrome, brushed metal, glossy PBR reflections |
-| Cloud and mist as the world's horizon | Hard skyboxes with visible geometry |
+All names are original to Project Lumen.
 
-## 3. Readability Rules
+- **Hearthguard** (Dawn) holds the **south-west** fort, on the south bank.
+- **Rimewardens** (Dusk) holds the **north-east** fort, on the north bank.
 
-**Camera:** top-down MOBA, 55° pitch, 38° vertical FOV, follows the hero with a fixed angle. Phone reference viewport: 390 x 844 CSS px.
+**Tone:** austere, enduring, quietly melancholy, with moments of human warmth. Not grimdark, not cozy. Avoid sunny meadows, tropical foliage, fresh-looking ruins, clutter, and polished chrome.
+
+## 3. Readability in Third Person
+
+**Camera:** over-right-shoulder, 70° vertical FOV, 4.5 m boom that collides with terrain and trunks. Scroll zooms to first person; V toggles directly. In first person only hands, forearms, and the held item are drawn.
 
 | # | Rule | Test |
 |---|---|---|
-| R1 | Every hero reads as a silhouette at **64 px tall** on a phone. | Grayscale screenshot at 64 px; the hero's class and signature shape must be identifiable. |
-| R2 | Value hierarchy is strict: ground < props < minions < heroes < ability VFX < UI. | Squint test on a full-map screenshot; the order must hold. |
-| R3 | Environment chroma is capped at **35%** of maximum; heroes run at full chroma. | Check HSL saturation in the color pass. |
-| R4 | Gameplay VFX are the highest-contrast elements in the scene. | Compare contrast ratio against the local terrain. Move VFX to brighter values if needed. |
-| R5 | Team identity never depends on hue alone. | Dawn and Dusk must also differ by banner shape and rim pattern. |
-| R6 | Outline weight is set by class (see Section 5). | Inspect at 1x and at 3x DPR on a phone. |
-
-**Value targets (approximate CIE L\*):**
-
-| Layer | L\* range | Chroma | Notes |
-|---|---|---|---|
-| Ground and sea | 22 to 38 | Low | Darkest layer. Cloud sea sits at the bottom of this range. |
-| Props and architecture | 35 to 55 | Low to medium | Terrace stone and lacquer accents. |
-| Minions | 50 to 70 | Medium | Team-tinted, flat-shaded. |
-| Heroes | 55 to 85 | Full | Brightest solid forms. Pale highlights reach 90. |
-| Ability VFX | 75 to 100 | Full | Additive; the only layer allowed to clip to white. |
-| UI | Context-dependent | Full | Sits above the scene; must hold contrast against any background. |
+| R1 | Heroes are identifiable at **30 m** on a phone. | Grayscale screenshot at 390 x 844; class and signature readable. |
+| R2 | Value order: snow and ground < props < minions < heroes < ability VFX < UI. | Squint test on a mid-map screenshot. |
+| R3 | Enemy team-rim appears **only when targeted or in ability range**. | Untargeted, out-of-range enemies show a faint silhouette only. |
+| R4 | Health bars appear within **40 m**. Beyond that, only targeted units show bars. | Check at 41 m. |
+| R5 | Telegraphs are **ground decals**, never floating icons. | Enemy telegraphs use `#E8457A`; allied telegraphs use team color. |
+| R6 | Off-screen threats get **edge chevrons** pointing toward the source. | Chevron color follows threat type; fades once the source is on screen. |
+| R7 | Team identity never depends on hue alone. | Banner shape and rim pattern differ (Section 4.1). |
 
 ## 4. Color
 
-### 4.1 Team and gameplay signals (colorblind-safe)
+### 4.1 Team and gameplay signals
 
-Dawn (amber) and Dusk (cyan) sit on the blue-yellow axis, which stays distinct under protanopia, deuteranopia, and tritanopia. Every hero palette must pass Color Oracle simulation for all three before approval. Team identity is always reinforced by shape (R5).
-
-| Role | Name | Hex | Usage |
-|---|---|---|---|
-| Dawn primary | Amber | `#F2A541` | Dawn rim light, ally ground decals, banners |
-| Dawn highlight | Pale Gold | `#FFD58A` | Specular glints, ability peak, eyes |
-| Dusk primary | Teal Cyan | `#3FC1C9` | Dusk rim light, ally ground decals, banners |
-| Dusk highlight | Foam Cyan | `#A8F0F2` | Specular glints, ability peak, eyes |
-| Enemy hostile | Ember Magenta | `#E8457A` | Damage telegraphs, all enemy-side ground decals |
-| Neutral | Moss Green | `#7FB069` | Jungle camps and neutral objectives |
-
-Allied effects never use `#E8457A`. Hostile effects never use Dawn or Dusk primaries.
-
-### 4.2 Environment palette
+Hearthguard (warm) and Rimewardens (cool) sit on the warm-cool axis, which holds under protanopia, deuteranopia, and tritanopia. All team assets must pass Color Oracle simulation for all three.
 
 | Role | Name | Hex | Usage |
 |---|---|---|---|
-| Cloud deep | Slate Indigo | `#1E2240` | Sea base, darkest ground, shadow tint |
-| Cloud light | Indigo Haze | `#3A4170` | Sea surface, distant fog color |
-| Terrace | Stone | `#8C8577` | Base terraces, ruins, walls |
-| Growth | Moss | `#5E7A4A` | Grove floors, grass edges, vines |
-| Accent | Lacquer Red | `#9E3B2E` | Pillars, banners, wood trim (use sparingly) |
-| Ornament | Gold Leaf | `#C9A24B` | Inlay and trim on environment only |
+| Hearthguard primary | Ember Orange | `#E07A2E` | Solid rim band, ally decals, fort markers |
+| Hearthguard cloth | Hearth Red-Brown | `#7A3423` | Banner cloth, trim |
+| Rimewardens primary | Glacial Blue | `#4FA3D9` | Dashed rim band, ally decals, fort markers |
+| Rimewardens cloth | Slate Blue | `#4A5A70` | Banner cloth, trim |
+| Enemy hostile | Telegraph Rose | `#E8457A` | Enemy telegraphs, edge chevrons, enemy target outline |
+| Neutral | Muted Moss | `#7FB069` | Pine-grove camps, neutral objectives |
 
-### 4.3 Color rules
+- `#E8457A` never appears on allied elements. Team colors never appear on hostile elements.
+- Team colors stay on rims, decals, banners, and markers. They never tint fire, Heartstones, or terrain.
 
-- Gold leaf appears only on environment and UI trim. It never appears on team-tinted or hostile elements, to avoid confusion with Dawn amber.
-- Pure white is capped at 92% value. Pure black is never used. Shadows are cool indigo and ink is warm near-black `#1A1424`.
-- Environment saturation is capped by R3. Heroes are the only full-chroma solids outside VFX.
+### 4.2 Environment and light
 
-## 5. Lighting & Rendering
+| Role | Name | Hex | Usage |
+|---|---|---|---|
+| Fresh snow | Drift White | `#E9EEF2` | Drifts, ridge caps (max 92% value) |
+| Shaded snow | Rime Shadow | `#9AA9B8` | Snow in shade, frost VFX |
+| Bedrock | Granite Gray | `#6E6A66` | Cliffs, slopes |
+| Road | Packed Earth | `#5B4A3A` | Lane roads |
+| Forest floor | Needle Brown | `#3D3328` | Ground under pines |
+| Pine | Pine Green | `#2E4A36` | Canopy (desaturated) |
+| Carved stone | Barrow Stone | `#7D776C` | Standing stones, fort walls |
+| Meltwater | Glacial Teal | `#3E5F73` | River body |
+| Fog and horizon | Haze Blue | `#B7C4CF` | Fog color, horizon sky |
+| Shadow tint | Cold Indigo | `#1B2232` | Shadows, grade |
+| Flame | Flame Amber | `#FFB25E` | Fire and brazier light (not team-tinted) |
+| Runic light | Carved Light | `#F4E7C1` | Heartstones, runes, Lumen |
+
+**Chroma cap:** environment HSL saturation is 35% or lower. Heroes and VFX are the only full-chroma elements.
+
+## 5. Lighting & Atmosphere
+
+**Default time of day:** late afternoon under thin overcast. The sun sits at 20 to 28 degrees, filtered by cloud, for crisp but soft-edged shadows. The sun is **cold-neutral** (`#DDE6F0`) even when low, so warmth stays exclusive to fire.
 
 **Light rig (all tiers):**
 
-- One **warm key** directional light, color approximately `#FFD9A0`.
-- One **cool hemisphere fill**: sky `#A8B4E8`, ground `#1E2240`.
-- **Rim light** on every hero and minion, colored with the team primary, from the side opposite the camera. Rim strength is a hero-authored value, typically 0.6 to 0.9.
-- **Baked vertex AO** on environment meshes. No real-time AO on mobile.
+- **Key:** one directional sun light.
+- **Sky fill:** HDRI image-based lighting from a CC0 Poly Haven overcast sky, prefiltered at build time.
+- **Fire:** point lights from braziers, torches, and lanterns, capped per tier (Section 13).
+- **Team rim:** a directional rim from the side opposite the camera, tinted by team.
 
-**Cel shading:**
+**Tone and grade:** ACES filmic tone mapping with fixed exposure per time of day (no auto-exposure). Cool shadows, warm highlights reserved for fire. Vignette at about 25%. **Bloom only on fire and magic.**
 
-- Three bands: shadow (about 0.45 of lit value), mid (about 0.75), and lit (1.0).
-- Band colors come from a single **1024 x 1024 gradient-map atlas** (Section 13). Each material family samples its own row.
-- Specular is a hard, shaped highlight from the Pale Gold or Foam Cyan highlight color.
+**Fog:** exponential, colored `#B7C4CF` and matched to the horizon so the map edge dissolves into sky. Fog begins at about 60% of far range. Height fog thickens in the river valley and pine groves. Peaks are layered distant silhouettes, lighter and bluer with each ridge.
 
-**Outlines (inverted hull):**
+**Shadows:** one sun cascade that follows the player (sizes in Section 13). Heroes, large props, and standing stones cast shadows; small props receive only.
 
-| Class | Width at 1080p-equivalent height | Color |
+## 6. Materials & Textures
+
+**Pipeline:** `MeshStandardMaterial` everywhere. Source textures are CC0 photoscans from ambientCG or Poly Haven at **1K**. Only the HDRI ships above 1K.
+
+| Family | Character | Key properties |
 |---|---|---|
-| Hero | 2.5 px | Ink `#1A1424` |
-| Minion | 1.75 px | Ink, 80% opacity |
-| Prop | 1.0 px | Ink, 60% opacity |
-| Terrain | 0 (no hull) | n/a |
+| Stone | Carved, weathered, lichen-patched | Roughness 0.7 to 0.9 |
+| Wood | Larch and pine, split, aged | Roughness 0.8 |
+| Forged iron | Hammered, rust at edges | Metalness 1, roughness 0.4 to 0.6 |
+| Boiled leather | Matte, creased, worn | Roughness 0.6 to 0.8 |
+| Carved bone | Ivory-gray, polished at touch points | Roughness 0.5 |
+| Snow and ice | Fresh, granular, glassy when packed | Roughness 0.3 to 0.9 by age |
 
-Outline width scales with viewport height, not DPR. Hull extrusion is authored per mesh and clamped to avoid cracks on sharp corners.
+**Terrain splatting:** one 1024 x 1024 RGBA mask over the 160 m map (about 16 cm per texel).
 
-**Fog:** exponential, toward Indigo Haze `#3A4170`, starting at roughly 60% of the camera's far range. It dissolves the map edge into the cloud sea.
+- **R:** snow, from height above the snow line and upward-facing normals.
+- **G:** bedrock, from slope above about 35 degrees.
+- **B:** forest floor and grass, the default on gentle slopes.
+- **A:** packed road, painted from lane splines.
 
-**Shadows:**
+Blend edges use a shared noise texture to avoid banding. Steep rock uses triplanar sampling. River banks lower roughness within 2 m of water.
 
-- Low and Medium tiers: **blob shadows** only, under heroes and minions, as a soft decal.
-- High tier: one soft shadow map from the key light, 2048 px, PCF filtering, casting from heroes and large props only.
+**Formats:** KTX2 with Basis Universal. ETC1S for albedo, UASTC for normal and packed ORM (occlusion, roughness, metalness). Mipmaps on everywhere.
 
-## 6. Characters
+## 7. Characters
 
-### 6.1 Proportions
+### 7.1 Proportions
 
-- Chunky, about **5.5 heads tall**. Head is large, torso is compact, legs are short and planted.
-- **Oversized hands and weapons.** A weapon's readable shape must survive at 64 px.
-- Posture is heroic and forward-leaning, with the center of mass low.
+- Realistic proportions at about **7.5 heads tall**. Weapons are believable in scale and carried with weight.
+- Layered materials: forged iron, boiled leather, wool, fur trim, carved bone. Color comes from material variation and the team rim, not paint.
+- Grounded posture: center of mass low, knees soft, weight visibly shifting.
 
-### 6.2 Signature shapes
+### 7.2 Signature silhouettes
 
-Each hero owns one **signature shape**: a crescent, a lantern, a spire, a ring, a wedge, and so on. The shape appears in four places:
+Each hero has **one clear silhouette signature** readable at 30 m, such as an antlered helm, a great banner on a pole, a lantern staff, or a notched long-axe. No two heroes share one. The signature also drives the hero's ability emblem, so players learn one shape per hero.
 
-1. Silhouette (a headdress, weapon head, or cape edge)
-2. Ability VFX (the shape of the primary effect's leading edge)
-3. UI icon (on the medallion)
-4. Ground decal (the hero's selection ring is built from it)
+### 7.3 Budgets
 
-No two heroes may share a signature shape. Each shape is reviewed against the others at 64 px.
-
-### 6.3 Materials
-
-- Lacquer base with a gloss map; enamel for trims; gold leaf on accessories only.
-- Maximum **3 material slots per hero** on the mobile LOD, and 5 on high.
-- Color comes from the gradient map and team rim, not from texture detail.
-- No normal maps on mobile LODs. High tier may use a single normal map for fine carving.
-
-### 6.4 Budgets
-
-| Item | High tier | Medium tier | Low tier (mobile) |
+| Item | High | Medium | Low (mobile) |
 |---|---|---|---|
-| Triangles (hero LOD0) | 6,000 to 9,000 | 4,500 | 3,000 |
-| Bones | 40 max | 40 max | 40 max |
-| Hero texture | 1 shared atlas, 1024 x 1024 | Same | Same |
-| Materials | 5 | 4 | 3 |
-| Draw calls per hero | 3 | 2 | 1 to 2 |
+| Hero LOD0 triangles | 15,000 to 25,000 | 10,000 | 6,000 (LOD1) |
+| Bones (skinned) | 60 max | 60 max | 60 max |
+| Materials per hero | 5 | 4 | 3 |
+| Textures per hero | One shared 1K KTX2 atlas | Same | Same |
 
-## 7. Environment & Map Art
+**Stand-ins:** the current build uses procedural articulated heroes until skinned models arrive. Stand-ins must already use the final bone names, 1 unit = 1 m, and named signature sockets, so the swap is a file replacement, not a rig change.
 
-The Shoals are built from stepped terraces, floating stone plates, and cloud. Each zone has a distinct role and palette emphasis, but all zones share the value hierarchy in R2.
+## 8. Environment & Map Zones
+
+**Map:** 160 m square valley. Hearthguard sits south-west and Rimewardens north-east, with the river between them on the diagonal.
 
 | Zone | Role | Dominant palette | Notes |
 |---|---|---|---|
-| **Base terraces** | Spawn and defense. Tiered stone with lacquer-red shrines. | Stone `#8C8577`, Lacquer Red `#9E3B2E` accents | Highest architecture density. Keep ground values darkest of any zone. |
-| **Lanes** | Combat corridors. Paved stone bridges between plates. | Stone, Indigo Haze | Low prop density. Clear center lines so minions and VFX read. |
-| **River of cloud** | Crossing and vision line. Luminous cloud sea with drifting mist. | Slate Indigo `#1E2240` to Indigo Haze `#3A4170` | Brightest ambient glow in the map. Use sparingly so heroes still stand out. |
-| **Jungle groves** | Neutral camps. Dense moss canopy and hanging lanterns. | Moss `#5E7A4A`, Neutral Moss Green `#7FB069` for camp markers | Medium contrast. Camps use Moss Green markers, never team colors. |
+| **Forts** | Spawn and defense. Stone barrow-forts, braziers, a carved Heartstone. | Barrow Stone, Granite Gray, team cloth | Brazier light is the map's main warm source. |
+| **Lanes (3)** | Combat corridors. Worn earth roads with wooden lantern posts. | Packed Earth, Rime Shadow | Low prop density. Only the nearest lantern posts get real lights. |
+| **Glacial river** | Crossing line. Meltwater, gravel banks, ice shelves. | Glacial Teal, Drift White | Fords marked by standing-stone pairs. Morning fog pools here. |
+| **Pine groves** (jungle) | Neutral camps. Dense pine, boulders, lichen. | Pine Green, Lichen Olive, Muted Moss markers | Camp markers use Muted Moss only. |
 
-**Environment asset budgets (per instance, mobile tier):**
+**Mobile budgets (per instance):** props 2,000 triangles and one material; terrain chunks 8,000 triangles with baked AO; trees instanced, with impostors beyond 60 m; 40 lantern glows visible.
 
-- Props: 2,000 triangles max, 1 material.
-- Terrain tiles: 8,000 triangles max per chunk, with baked AO.
-- Lanterns and braziers: emissive mesh with a flipbook glow, capped at 40 visible.
+## 9. Animation
 
-## 8. Animation
+**Principles:** weighty, grounded, momentum-driven. Heavy heroes commit; light heroes dart.
 
-**Principles:** snappy, anticipatory, and posed. Motion reads before detail does.
+- **No root motion.** Movement is server-authoritative. Clips animate in place, and foot placement follows the server's position.
+- **Momentum:** locomotion blends from velocity. Accelerate and decelerate in 0.2 to 0.35 s. Turns lean into travel.
+- **Anticipation:** light attacks wind up 3 to 4 frames at 30 fps; heavy attacks and ultimates 6 to 10 frames. The wind-up must read at default boom distance.
+- **Impact:** heavy hits freeze attacker and target for 2 frames at 60 fps. Light hits do not.
+- **Layering:** the lower body drives locomotion; an upper-body mask from the spine up handles casting and aim, so heroes cast while running.
+- **Additive layers and ground contact:** breathing and cold reactions sit on any pose. Footsteps sync to foot plants; in snow, feet sink.
+- **Idle:** breathing cycle (2 to 3 s), weight shift every 6 to 10 s, one personality fidget per hero.
 
-- **Anticipation:** 3 to 6 frames of wind-up on every attack or ability, authored at 30 fps.
-- **Strong poses:** key poses must hold for at least 3 frames of the 30 fps authoring rate.
-- **Smear frames:** fast attacks use 1 stretched frame between key poses. Limit smears to the weapon and the hero's signature shape.
-- **Hit-stop:** on impact, freeze the attacker and target for **2 to 3 frames** at 60 fps (33 to 50 ms). Hit-stop applies to the hero that landed the hit and the target only.
-- **Idle:** continuous breathing (chest and shoulder bob, 2 to 3 second cycle) plus a **personality fidget** every 8 to 15 seconds. Each hero has one fidget that expresses its character.
+**Clip budget:** 24 per hero (idle, eight-direction move, attacks, abilities, reactions, death). First-person arms use a separate rig that shares clips where bone names match.
 
-**Animation budget:** 40 bones max per hero. Shared skeleton where possible. Clip count per hero: up to 24 (idle, move, basic attacks, abilities, reactions, death).
+## 10. VFX
 
-## 9. VFX Language
-
-**Shape language:**
-
-| Shape | Meaning |
-|---|---|
-| Circle | Area of effect (radius) |
-| Arrow or wedge | Direction (skillshots, dashes) |
-| Line | Persistent beam or lane effect |
-| Ring | Cooldown pulse, reveal, or channel |
-
-**Telegraphs:** ground decals in team color for allies and `#E8457A` for enemies. Telegraphs use a 20 to 40% fill with a solid outline. Fill fades in before the effect, and the effect uses the highlight color at peak.
-
-**Construction:**
-
-- **Mesh-based** for shapes and geometry (ribbons, wedges, shockwaves).
-- **Flipbook** for particle-like bursts. Sheets capped at **512 x 512**, with 8 to 16 frames.
-- **Additive blending** only for glow. Additive layers are capped at **3 overlapping per screen region**. Use alpha blending for solid shapes.
-
-**Particle budgets (concurrent active particles):**
-
-| Tier | Active particles | Additive layers | Notes |
+| Element | Look | Color | Notes |
 |---|---|---|---|
-| High | 1,200 | 3 | Full secondary sparks |
-| Medium | 600 | 3 | Secondary sparks halved |
-| Low | 300 | 2 | No secondary sparks, no trails |
+| Frost | Crystal shards, rime sparkle, cold mist | Rime Shadow, pale blue-white | Slows; never reads as healing |
+| Ember | Flame flipbooks, cinders, heat shimmer | Flame Amber | Fire is the only warm VFX element |
+| Storm | White-blue arcs, lightning ribbons | Glacial white | Short, high-contrast, audible |
+| Runic | Projected glyphs, slow pulses from stone | Carved Light | Magic and Heartstones |
 
-## 10. UI / UX Visual Language
+**Grounded behavior:** sparks fall, smoke rises then drifts with wind, frost spreads across surfaces and stops at edges. No unmotivated floating particles.
 
-**Enamel plaque panels:** rounded rectangles with a glossy enamel fill (Indigo Haze base, Stone for secondary panels) and a **gold-leaf trim** on the outer edge. Gold trim is 2 px at 1x.
+**Team color:** used on a VFX only when the effect carries team meaning, such as an allied healing ring. Otherwise, element color.
 
-**Touch targets:** minimum **48 dp** on all interactive elements, with at least 8 dp spacing.
+**Telegraphs:** ground decals, 20 to 40% fill with a solid outline. Allied telegraphs use team color; enemy telegraphs use `#E8457A`. The fill fades in before the effect, and the effect peaks at outline brightness. Shape language: circle for radius, wedge for direction, line for beam, ring for cooldown or channel.
 
-**Ability medallions:** round lacquer medallions with the hero's signature shape as the icon. The cooldown sweep is a Pale Gold arc on Dawn and a Foam Cyan arc on Dusk. Medallion sizes: 64 dp (primary abilities), 48 dp (secondary).
+**Construction:** fire uses additive flipbooks (512 x 512 max, 8 to 16 frames) plus tier-capped point lights. Shards, arcs, and shockwaves are meshes. Additive blending is for glow and fire only, capped at 3 overlapping layers per region (2 on Low).
 
-**Typography:**
+| Tier | Active particles (incl. snow) | Snow share | Secondary sparks |
+|---|---|---|---|
+| High | 1,200 | 400 | Full |
+| Medium | 600 | 200 | Halved |
+| Low | 300 | 150 | None |
 
-| Use | Typeface | Notes |
-|---|---|---|
-| Headers and titles | Cinzel (or equivalent display serif) | Uppercase for section titles only |
-| Numbers, body, labels | Inter (or equivalent humanist sans) | Tabular figures for stats and timers |
-| Damage numbers | Inter Bold | Dark outline (`#1A1424`), 2 px. Scales with damage. |
+## 11. UI / HUD
 
-**Damage numbers:** colored by type. Physical uses Pale Gold, magical Foam Cyan, true damage white, heal Moss Green. Enemy-inflicted damage uses `#E8457A` only as a tint on the outline, never as the fill.
+The HUD is carved into the world: thin, minimal, and quiet until something matters.
 
-## 11. Audio-Visual Tone Notes
+- **Compass bar** (top center): thin horizontal bar with carved-stone ends, showing objectives and fort markers. Markers use banner shape (square for Hearthguard, swallow-tail for Rimewardens).
+- **Resource bars** (bottom center): three thin stacked bars. Health is Brick `#B8483A`; Lumen is Carved Light `#F4E7C1`; stamina is Rime Shadow `#9AA9B8`.
+- **Center reticle:** a 4 px dot, plus a 1 px ring only while aiming.
+- **Ability bar** (bottom): slots framed in carved stone and iron, showing the hero's emblem and a Carved Light cooldown sweep. States use shape and dimming, not color alone.
 
-- Lanterns and chimes accompany light-based abilities. Stone impacts are low, resonant thuds.
-- Music is modal and pentatonic, with a bright lead for Dawn and a cooler, airier lead for Dusk, so teams are distinct without relying on hue.
-- Visual hit-stop and audio impact should land on the same frame. A mismatch is a bug.
+**Typography:** Cinzel or Cormorant SC for titles (uppercase for section titles only). Inter for all numbers and labels, with tabular figures for timers and stats.
 
-## 12. Technical Budgets per Tier
+**World UI:** health bars 2 px tall with a team-colored edge. Damage numbers are Inter Bold with a dark outline.
 
-| Setting | Low (mobile) | Medium | High |
+**Mobile:** left virtual stick; right-side drag to look; ability buttons on a right-thumb arc. **All touch targets are at least 52 dp**, with 8 dp minimum spacing. Compass and bars stay clear of thumb arcs and the top safe area.
+
+## 12. Audio-Visual Tone
+
+- **Wind** is the constant bed. It rises near ridges and the river and drops inside pine groves.
+- **Horns** mark events. Hearthguard horns are low and resonant; Rimewardens horns are high, hollow, and whistled.
+- **Braziers crackle**; torches hiss near snow. **Snow crunches** underfoot, and ice cracks from the river.
+- **Music** is sparse: drones, low strings, a frame drum, a bell at key moments.
+- **Impacts align.** A heavy hit's freeze and audio thud share a frame.
+
+## 13. Performance Tiers & Budgets
+
+Tier is chosen automatically on first load by a short GPU benchmark and device class. Players can override it in settings.
+
+| Setting | Low (mobile baseline) | Medium | High |
 |---|---|---|---|
 | Target frame rate | 30 fps | 60 fps | 60 fps |
 | Device pixel ratio cap | 1.0 | 1.5 | 2.0 |
-| Shadows | Blob only | Blob only | Soft shadow map, 2048 px |
-| Outline | On, hero and minion only | On, all classes | On, all classes |
-| Bloom | Off | Half-res, threshold 0.9 | Full-res, threshold 0.85 |
+| Sun shadow | Blob shadows only | One cascade, 1024 px, 24 m | One cascade, 2048 px, 48 m, soft PCF |
+| Visible fire point lights | 2 | 4 | 8 |
+| Post FX | Grade, vignette | Plus half-res bloom | Plus full-res bloom, layered fog volumes |
+| Fog | Exponential | Exponential with noise | Exponential with layered height fog |
+| Grass and undergrowth | 25% density | 60% | 100% |
 | Active particles | 300 | 600 | 1,200 |
-| Hero triangles | 3,000 | 4,500 | 6,000 to 9,000 |
-| Draw calls per frame | 150 max | 250 max | 400 max |
-| Texture memory | 128 MB max | 256 MB max | 512 MB max |
-| Fog | On | On | On |
-| Rim light | On | On | On |
-| Specular highlight | Off | On | On |
+| Hero triangles | 6,000 (LOD1) | 10,000 | 15,000 to 25,000 |
+| Hero materials | 3 | 4 | 5 |
+| Draw calls per frame | Under 150 | Under 300 | Under 500 |
+| Triangles on screen | 300,000 | 800,000 | 1,500,000 |
+| Texture memory | 128 MB | 256 MB | 512 MB |
 
-Tier selection is automatic on first load using a short GPU benchmark and device class. Players can override it in settings.
+## 14. Asset Pipeline & Licensing
 
-## 13. Asset Pipeline
+**Sources:** CC0 only, from ambientCG and Poly Haven, plus original work. Downloads go through `tools/assets/fetch-assets.mjs`, which records source URL and fetch date. Any other license needs Art Director approval before import.
 
-**Formats:**
+**Processing (gltf-transform):** simplify for LODs, meshopt compression (Draco only for large static environment meshes, after profiling). Textures are KTX2; UI sprites WebP with PNG fallback; HDRIs prefiltered at build time.
 
-- **glTF 2.0 (.glb)** for all 3D assets.
-- **KTX2 (Basis Universal)** for all textures.
-- **meshopt** compression as the default for geometry. **Draco** is allowed only for large static environment meshes, after profiling.
-- Gradient-map atlas and UI sprite sheets ship as KTX2 and PNG fallback.
-
-**Folder layout** (all art under `client/public/assets`):
+**Layout** (all art under `packages/client/public/assets`):
 
 ```
-client/public/assets/
-  heroes/<hero_id>/        model_lod0.glb, model_lod1.glb, anims.glb, icon.ktx2
-  minions/<minion_id>/     model_lod0.glb, model_lod1.glb
-  env/<zone>/              props/, terrain/, lanterns/
-  vfx/<effect_id>/         mesh/, flipbook_512.ktx2
-  ui/                      atlas_ui.ktx2, medallions/, plaques/
-  textures/                gradient_map_1024.ktx2, noise_shared.ktx2
-  fonts/                   cinzel.woff2, inter.woff2
+models/heroes/<hero_id>/      lod0.glb, lod1.glb, anims.glb
+models/minions/<minion_id>/   lod0.glb, lod1.glb
+models/env/<zone>/            props/, terrain/, lanterns/
+models/vfx/<effect_id>/       mesh/, flipbook_512.ktx2
+textures/terrain/ textures/materials/ textures/ui/
+hdri/    fonts/    CREDITS.md
 ```
 
-**Naming conventions:**
+**Credits:** every asset gets a line in `packages/client/public/assets/CREDITS.md`: file path, name, author, source URL, license (CC0 1.0 unless noted), fetch date, and modifications. No asset ships without one.
 
-- All files: `lowercase_snake_case`. No spaces, no version numbers in names (use git history).
-- Heroes: `hero_<id>_<lod>`, for example `hero_lanternbearer_lod0.glb`.
-- Environment: `env_<zone>_<asset>_<variant>`, for example `env_base_pillar_a.glb`.
-- VFX: `vfx_<ability>_<kind>`, for example `vfx_wedge_dash_flipbook.ktx2`.
-- Materials: `mat_<family>_<name>`, for example `mat_lacquer_red_gloss`.
-- Bones: `root`, `spine_01` through `spine_03`, `head`, `hand_l`, `hand_r`, `weapon_socket`, and so on. Left and right are always suffixed.
+**Naming:**
 
-**Export checklist:** apply transforms, a 1 unit = 1 meter scale, one origin at the feet, a single UV set, and a baked AO vertex channel for environment.
+- `lowercase_snake_case`; no spaces; no version numbers (use git history).
+- Heroes `hero_<id>_<lod>` (e.g. `hero_antlerhelm_lod0.glb`). Environment `env_<zone>_<asset>_<variant>`. VFX `vfx_<element>_<kind>`. Materials `mat_<family>_<name>`. Textures `tex_<family>_<map>_<res>`.
+- Bones: `root`, `spine_01` to `spine_03`, `neck`, `head`, `clavicle_l/r`, `hand_l/r`, `weapon_socket_r`. Left and right always suffixed.
 
-## 14. Review Checklist for New Assets
+**Export checklist:** transforms applied; 1 unit = 1 m; origin at feet; one UV set; baked AO on environment.
 
-Every new asset must pass this list before merging:
+## 15. Review Checklist
 
-- [ ] Triangle count is within the tier budget (Section 6.4, 7, or 9).
-- [ ] Bone count is 40 or fewer.
-- [ ] Materials are within the per-class limit.
-- [ ] Textures are KTX2 and reference only the shared gradient map where applicable.
-- [ ] Signature shape (heroes) is distinct from all other heroes at 64 px.
-- [ ] Grayscale silhouette test passed at 64 px.
-- [ ] Value falls within the layer target in Section 3 (R2).
-- [ ] Environment chroma is 35% or lower (R3).
-- [ ] Team colors pass protanopia, deuteranopia, and tritanopia simulation (Section 4.1).
-- [ ] Outline width matches the class table in Section 5.
-- [ ] Animation includes anticipation, a hold on impact, and a fidget where applicable.
-- [ ] VFX uses the correct shape language and team or hostile color.
-- [ ] Additive layers stay within the cap in Section 9.
-- [ ] Renders correctly at Low, Medium, and High tiers, with a phone screenshot at 390 x 844.
-- [ ] File names, folder placement, and bone names follow Section 13.
+Every new asset must pass before merging:
+
+- [ ] Triangles, bones, clips, and materials are within the tier budgets (Sections 7.3, 13).
+- [ ] Textures 1K KTX2 (WebP for UI); hero signature passes the 30 m grayscale test at 390 x 844.
+- [ ] Values follow R2; environment saturation is 35% or lower.
+- [ ] Team colors pass three-way colorblind simulation; team identity is not hue alone (R7).
+- [ ] Telegraphs are ground decals in the correct color; warm light and bloom are limited to fire and magic.
+- [ ] Animation has anticipation, layering where applicable, and no root motion.
+- [ ] Additive layers stay within the Section 10 cap.
+- [ ] Renders correctly at all three tiers; `CREDITS.md` entry and naming follow Section 14.

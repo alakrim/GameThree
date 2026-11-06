@@ -4,7 +4,11 @@ import { type Vec2, distToPolyline, dist, distToSegment } from './math.js';
 export type Team = 0 | 1; // 0 = Dawn (amber), 1 = Dusk (teal)
 export type LaneId = 'top' | 'mid' | 'bot';
 
-export interface Obstacle { kind: 'grove' | 'rock'; x: number; y: number; r: number; variant: number }
+export interface Obstacle { kind: 'grove' | 'rock' | 'wall' | 'heart'; x: number; y: number; r: number; variant: number }
+
+/** Fort ring wall radius (m) and gate half-width (m) where lanes leave the fort. */
+export const FORT_WALL_R = 12.5;
+export const FORT_GATE_HALF = 4.6;
 
 export interface MapDef {
   seed: number;
@@ -36,14 +40,14 @@ export function createMap(seed = 1337): MapDef {
   };
 
   const rng = new Rng(seed);
-  const placed: Obstacle[] = [];
+  const placed: Obstacle[] = fortObstacles(map);
   const clearOf = (p: Vec2, r: number): boolean => {
     if (Math.abs(p.x) + r > half - 3 || Math.abs(p.y) + r > half - 3) return false;
     for (const id of ['top', 'mid', 'bot'] as const) if (distToPolyline(p, lanes[id]) < map.laneHalfWidth + r + 1.5) return false;
     if (distToSegment(p, map.river[0], map.river[1]) < map.riverHalfWidth + r + 1) return false;
     for (const t of [0, 1] as const) if (dist(p, map.bases[t].pos) < map.bases[t].radius + r + 4) return false;
     // Keep jungle corridors open: generous spacing between obstacles (min gap ~3.5 units).
-    for (const o of placed) if (dist(p, o) < o.r + r + 3.5) return false;
+    for (const o of placed) if (o.kind !== 'wall' && o.kind !== 'heart' && dist(p, o) < o.r + r + 3.5) return false;
     return true;
   };
   for (let i = 0; i < 2400 && placed.length < 120; i++) {
@@ -58,4 +62,38 @@ export function createMap(seed = 1337): MapDef {
   }
   map.obstacles = placed;
   return map;
+}
+
+/** Where each lane polyline first crosses the fort wall circle (Dawn fort), as an angle around the fort centre. */
+export function gateAngles(map: MapDef): number[] {
+  const c = map.bases[0].pos;
+  const out: number[] = [];
+  for (const lane of Object.values(map.lanes)) {
+    let prev = lane[0]!;
+    outer: for (let i = 1; i < lane.length; i++) {
+      const a = lane[i - 1]!, b = lane[i]!;
+      for (let t = 0; t <= 1; t += 0.01) {
+        const p = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        if (Math.hypot(p.x - c.x, p.y - c.y) >= FORT_WALL_R) { out.push(Math.atan2(p.y - c.y, p.x - c.x)); break outer; }
+        prev = p;
+      }
+    }
+    void prev;
+  }
+  return out;
+}
+
+/** Fort ring walls (chain of circles with gates at lane exits) + Heartstone, mirrored exactly for Dusk. */
+function fortObstacles(map: MapDef): Obstacle[] {
+  const c = map.bases[0].pos;
+  const gates = gateAngles(map);
+  const gateHalfAng = FORT_GATE_HALF / FORT_WALL_R;
+  const out: Obstacle[] = [{ kind: 'heart', x: c.x, y: c.y, r: 1.6, variant: 0 }];
+  const steps = Math.round((Math.PI * 2 * FORT_WALL_R) / 1.4);
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2;
+    if (gates.some((g) => Math.abs(Math.atan2(Math.sin(a - g), Math.cos(a - g))) < gateHalfAng)) continue;
+    out.push({ kind: 'wall', x: c.x + Math.cos(a) * FORT_WALL_R, y: c.y + Math.sin(a) * FORT_WALL_R, r: 0.9, variant: i });
+  }
+  return [...out, ...out.map((o) => ({ ...o, x: -o.x, y: -o.y }))];
 }

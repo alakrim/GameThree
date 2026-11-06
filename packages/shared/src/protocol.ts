@@ -2,6 +2,9 @@ import { PROTOCOL_VERSION } from './constants.js';
 
 /** Player intents. Clients never send state, only commands; the server is authoritative. */
 export type Command =
+  /** Direct analog movement (WASD / stick) for the current tick. `seq` lets the client reconcile its prediction. */
+  | { type: 'input'; seq: number; mx: number; my: number }
+  /** Pathfinding move order (bots, click-to-move fallback). */
   | { type: 'move'; x: number; y: number }
   | { type: 'stop' };
 
@@ -15,6 +18,7 @@ export interface EntitySnapshot {
   m: 0 | 1; // moving
   o?: string; // owner player id
   h?: string; // hero archetype id
+  sq?: number; // last input seq processed (heroes only) — prediction ack
 }
 
 export interface Snapshot { tick: number; ents: EntitySnapshot[] }
@@ -41,6 +45,7 @@ export function decodeClient(raw: string): ClientMsg | null {
       case 'cmd': {
         const c = m.cmd;
         if (c?.type === 'stop') return m;
+        if (c?.type === 'input' && Number.isInteger(c.seq) && Number.isFinite(c.mx) && Number.isFinite(c.my)) return m;
         if (c?.type === 'move' && Number.isFinite(c.x) && Number.isFinite(c.y)) return m;
         return null;
       }

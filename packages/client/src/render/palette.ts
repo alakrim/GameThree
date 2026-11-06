@@ -1,12 +1,9 @@
-/** Locked palette — see docs/art/ART_BIBLE.md §4. Never hard-code colors elsewhere. */
+/** Locked palette — docs/art/ART_BIBLE.md §4 ("Frost & Hearthfire"). */
 export const PALETTE = {
-  dawn: 0xf2a541, dawnHi: 0xffd58a,
-  dusk: 0x3fc1c9, duskHi: 0xa8f0f2,
+  dawn: 0xe07a2e, dawnBanner: 0x7a2f1e,   // Hearthguard — ember
+  dusk: 0x4fa3d9, duskBanner: 0x2c4660,   // Rimewardens — glacial
   hostile: 0xe8457a, neutral: 0x7fb069,
-  cloudDeep: 0x1e2240, cloudHi: 0x3a4170,
-  stone: 0x8c8577, moss: 0x5e7a4a, lacquer: 0x9e3b2e, gold: 0xc9a24b,
-  ink: 0x14121c, keyLight: 0xffe6bf, skyFill: 0x6f7fd6, groundFill: 0x2b2438,
+  fire: 0xffa24a, rune: 0xfff0c8,
 } as const;
-
 export const teamColor = (t: 0 | 1) => (t === 0 ? PALETTE.dawn : PALETTE.dusk);
-export const teamHi = (t: 0 | 1) => (t === 0 ? PALETTE.dawnHi : PALETTE.duskHi);
+export const teamBanner = (t: 0 | 1) => (t === 0 ? PALETTE.dawnBanner : PALETTE.duskBanner);

@@ -1,33 +1,63 @@
 import * as THREE from 'three';
 
-/** MOBA camera: fixed 55° pitch, 38° FOV (Art Bible §3), follow/free modes, clamped to the arena. */
-export class CameraRig {
+/**
+ * Over-the-shoulder third-person camera with first-person zoom (Art Bible §3):
+ * yaw/pitch orbit around a head-height pivot, right-shoulder offset, terrain collision.
+ */
+export class ThirdPersonCamera {
   readonly camera: THREE.PerspectiveCamera;
-  readonly target = new THREE.Vector3();
-  locked = true;
-  distance = 36;
-  minDist = 24; maxDist = 50;
-  private pitch = THREE.MathUtils.degToRad(55);
-  private follow = new THREE.Vector3();
-  constructor(private bounds: number) {
-    this.camera = new THREE.PerspectiveCamera(38, 1, 0.5, 600);
+  yaw = 0; pitch = -0.18;
+  boom = 4.2; private boomSm = 4.2;
+  readonly minBoom = 0; readonly maxBoom = 8;
+  private pivot = new THREE.Vector3();
+  private pivotSm = new THREE.Vector3();
+  private first = true;
+  private lastThird = 4.2;
+
+  constructor(private groundAt: (wx: number, wz: number) => number) {
+    this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 1400);
   }
-  setFollow(p: THREE.Vector3) { this.follow.copy(p); }
-  pan(dx: number, dz: number) { this.locked = false; this.target.x += dx; this.target.z += dz; }
-  zoom(delta: number) { this.distance = THREE.MathUtils.clamp(this.distance + delta, this.minDist, this.maxDist); }
+
+  get firstPerson() { return this.boomSm < 0.6; }
+
+  look(dx: number, dy: number) {
+    this.yaw -= dx;
+    this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.25, 0.95);
+  }
+  zoom(delta: number) { this.boom = THREE.MathUtils.clamp(this.boom + delta, this.minBoom, this.maxBoom); if (this.boom < 0.6) this.boom = delta < 0 ? 0 : 0.6; }
+  toggleView() { if (this.boom < 0.6) this.boom = this.lastThird; else { this.lastThird = this.boom; this.boom = 0; } }
+
   resize(w: number, h: number) {
     this.camera.aspect = w / h;
-    // Portrait phones: widen vertical FOV so the horizontal view stays playable.
-    this.camera.fov = w < h ? 58 : 38;
+    this.camera.fov = w < h ? 82 : 70; // portrait phones need a wider vertical FOV
     this.camera.updateProjectionMatrix();
   }
-  update(dt: number) {
-    if (this.locked) this.target.lerp(this.follow, 1 - Math.exp(-dt * 10));
-    const b = this.bounds;
-    this.target.x = THREE.MathUtils.clamp(this.target.x, -b, b);
-    this.target.z = THREE.MathUtils.clamp(this.target.z, -b, b);
-    const off = new THREE.Vector3(0, Math.sin(this.pitch) * this.distance, Math.cos(this.pitch) * this.distance);
-    this.camera.position.copy(this.target).add(off);
-    this.camera.lookAt(this.target);
+
+  /** Movement basis in SIM space (x, y) for the current yaw. */
+  basis(): { fwd: [number, number]; right: [number, number] } {
+    return { fwd: [-Math.sin(this.yaw), Math.cos(this.yaw)], right: [Math.cos(this.yaw), Math.sin(this.yaw)] };
+  }
+
+  update(target: THREE.Vector3, dt: number) {
+    this.pivot.set(target.x, target.y + 1.62, target.z);
+    if (this.first) { this.pivotSm.copy(this.pivot); this.first = false; }
+    // Tight follow on the horizontal plane; slightly softer vertically to absorb terrain bumps.
+    this.pivotSm.x = this.pivot.x; this.pivotSm.z = this.pivot.z;
+    this.pivotSm.y += (this.pivot.y - this.pivotSm.y) * Math.min(1, dt * 12);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(this.pitch, this.yaw, 0, 'YXZ'));
+    // Collision: shorten the boom if terrain intrudes between pivot and camera.
+    let want = this.boom;
+    const shoulder = 0.55 * Math.min(1, want / 4.2);
+    for (let i = 1; i <= 8 && want > 0.3; i++) {
+      const t = (i / 8) * want;
+      const p = new THREE.Vector3(shoulder * (t / Math.max(want, 1e-3)), 0, t).applyQuaternion(q).add(this.pivotSm);
+      if (p.y < this.groundAt(p.x, p.z) + 0.35) { want = Math.max(0.3, t - want / 8); break; }
+    }
+    this.boomSm += (want - this.boomSm) * Math.min(1, dt * (want < this.boomSm ? 20 : 6));
+    const sh = 0.55 * Math.min(1, this.boomSm / 4.2);
+    const off = new THREE.Vector3(sh, 0, this.boomSm).applyQuaternion(q);
+    this.camera.position.copy(this.pivotSm).add(off);
+    if (this.boomSm < 0.6) this.camera.position.y = this.pivotSm.y + 0.06; // eye height in first person
+    this.camera.quaternion.copy(q);
   }
 }

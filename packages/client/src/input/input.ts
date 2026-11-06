@@ -1,108 +1,77 @@
-import * as THREE from 'three';
-import type { CameraRig } from '../render/camera.js';
-
-export interface InputEvents { onMoveOrder(p: THREE.Vector3): void; onStop(): void }
+import type { ThirdPersonCamera } from '../render/camera.js';
 
 /**
- * Unified pointer input (mouse + touch + pen) so desktop and mobile share one path.
- *  Desktop: right/left click = move (hold to steer), wheel = zoom, arrows / screen edge = pan, Space = recenter, Y = lock, S = stop.
- *  Touch:   tap = move, one-finger drag = pan, pinch = zoom, double-tap own area = recenter (via HUD button).
+ * Unified input. Desktop: WASD/arrows move relative to camera, mouse look (pointer lock), wheel zoom, V view toggle.
+ * Touch: left half = floating virtual stick, right half = drag to look, VIEW button toggles first/third person.
+ * Produces an analog movement vector in SIM space every frame.
  */
 export class Input {
-  private ray = new THREE.Raycaster();
-  private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  private ndc = new THREE.Vector2();
-  private pointers = new Map<number, { x: number; y: number; sx: number; sy: number; type: string; dragged: boolean }>();
-  private pinchDist = 0;
-  private holdMove: number | null = null;
-  private holdTimer = 0;
-  private mouse = { x: -1, y: -1, inside: false };
   private keys = new Set<string>();
+  private stick = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
+  private lookId = -1; private lookX = 0; private lookY = 0;
+  locked = false;
+  readonly touch = matchMedia('(pointer: coarse)').matches;
+  private stickEl: HTMLDivElement; private knobEl: HTMLDivElement;
 
-  constructor(private el: HTMLElement, private rig: CameraRig, private ev: InputEvents) {
-    el.addEventListener('contextmenu', (e) => e.preventDefault());
-    el.addEventListener('pointerdown', this.down);
-    el.addEventListener('pointermove', this.move);
-    el.addEventListener('pointerup', this.up);
-    el.addEventListener('pointercancel', this.up);
-    el.addEventListener('pointerleave', () => { this.mouse.inside = false; });
-    el.addEventListener('wheel', (e) => { e.preventDefault(); rig.zoom(Math.sign(e.deltaY) * 3); }, { passive: false });
+  constructor(private el: HTMLCanvasElement, private cam: ThirdPersonCamera) {
+    const sens = 0.0022;
+    el.addEventListener('click', () => { if (!this.touch && !this.locked) el.requestPointerLock?.(); });
+    document.addEventListener('pointerlockchange', () => { this.locked = document.pointerLockElement === el; });
+    document.addEventListener('mousemove', (e) => { if (this.locked) cam.look(e.movementX * sens, e.movementY * sens); });
+    el.addEventListener('wheel', (e) => { e.preventDefault(); cam.zoom(Math.sign(e.deltaY) * 0.8); }, { passive: false });
     addEventListener('keydown', (e) => {
+      if (e.repeat) return;
       this.keys.add(e.code);
-      if (e.code === 'Space') { rig.locked = true; e.preventDefault(); }
-      if (e.code === 'KeyY') rig.locked = !rig.locked;
-      if (e.code === 'KeyS') ev.onStop();
+      if (e.code === 'KeyV') cam.toggleView();
+      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
-    addEventListener('blur', () => { this.keys.clear(); this.holdMove = null; });
-  }
+    addEventListener('blur', () => this.keys.clear());
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  groundAt(clientX: number, clientY: number): THREE.Vector3 | null {
-    const r = this.el.getBoundingClientRect();
-    this.ndc.set(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
-    this.ray.setFromCamera(this.ndc, this.rig.camera);
-    return this.ray.ray.intersectPlane(this.plane, new THREE.Vector3());
-  }
-
-  private order(x: number, y: number) { const p = this.groundAt(x, y); if (p) this.ev.onMoveOrder(p); }
-
-  private down = (e: PointerEvent) => {
-    this.el.setPointerCapture(e.pointerId);
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, sx: e.clientX, sy: e.clientY, type: e.pointerType, dragged: false });
-    if (e.pointerType === 'mouse') {
-      if (e.button === 0 || e.button === 2) { this.order(e.clientX, e.clientY); this.holdMove = e.pointerId; this.holdTimer = 0.15; }
-    } else if (this.pointers.size === 2) {
-      const [a, b] = [...this.pointers.values()];
-      this.pinchDist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-    }
-  };
-
-  private move = (e: PointerEvent) => {
-    if (e.pointerType === 'mouse') this.mouse = { x: e.clientX, y: e.clientY, inside: true };
-    const p = this.pointers.get(e.pointerId);
-    if (!p) return;
-    const dx = e.clientX - p.x, dy = e.clientY - p.y;
-    p.x = e.clientX; p.y = e.clientY;
-    if (p.type === 'mouse') return;
-    if (this.pointers.size === 1) {
-      if (!p.dragged && Math.hypot(p.x - p.sx, p.y - p.sy) > 14) p.dragged = true;
-      if (p.dragged) {
-        const k = this.rig.distance / this.el.clientHeight * 1.1;
-        this.rig.pan(-dx * k, -dy * k);
+    // Touch: virtual stick + look.
+    this.stickEl = document.createElement('div'); this.stickEl.className = 'stick';
+    this.knobEl = document.createElement('div'); this.knobEl.className = 'knob';
+    this.stickEl.appendChild(this.knobEl); document.body.appendChild(this.stickEl);
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      el.setPointerCapture(e.pointerId);
+      if (e.clientX < innerWidth * 0.45 && this.stick.id < 0) {
+        this.stick = { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 };
+        this.stickEl.style.display = 'block'; this.stickEl.style.left = `${e.clientX}px`; this.stickEl.style.top = `${e.clientY}px`;
+        this.knobEl.style.transform = 'translate(-50%, -50%)';
+      } else if (this.lookId < 0) { this.lookId = e.pointerId; this.lookX = e.clientX; this.lookY = e.clientY; }
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (e.pointerId === this.stick.id) {
+        const R = 56; let dx = e.clientX - this.stick.ox, dy = e.clientY - this.stick.oy;
+        const l = Math.hypot(dx, dy); if (l > R) { dx *= R / l; dy *= R / l; }
+        this.stick.x = dx / R; this.stick.y = dy / R;
+        this.knobEl.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+      } else if (e.pointerId === this.lookId) {
+        cam.look((e.clientX - this.lookX) * 0.0055, (e.clientY - this.lookY) * 0.0045);
+        this.lookX = e.clientX; this.lookY = e.clientY;
       }
-    } else if (this.pointers.size === 2) {
-      p.dragged = true;
-      const [a, b] = [...this.pointers.values()];
-      const d = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-      this.rig.zoom((this.pinchDist - d) * 0.08);
-      this.pinchDist = d;
-    }
-  };
+    });
+    const end = (e: PointerEvent) => {
+      if (e.pointerId === this.stick.id) { this.stick.id = -1; this.stick.x = this.stick.y = 0; this.stickEl.style.display = 'none'; }
+      if (e.pointerId === this.lookId) this.lookId = -1;
+    };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  }
 
-  private up = (e: PointerEvent) => {
-    const p = this.pointers.get(e.pointerId);
-    this.pointers.delete(e.pointerId);
-    if (this.holdMove === e.pointerId) this.holdMove = null;
-    if (p && p.type !== 'mouse' && !p.dragged && this.pointers.size === 0) this.order(e.clientX, e.clientY);
-    if (p && this.pointers.size === 1) for (const q of this.pointers.values()) q.dragged = true; // end of pinch: don't tap
-  };
-
-  update(dt: number) {
-    // Hold-to-steer (MOBA convention), throttled to protect the server's command budget.
-    if (this.holdMove !== null) {
-      this.holdTimer -= dt;
-      const p = this.pointers.get(this.holdMove);
-      if (p && this.holdTimer <= 0) { this.holdTimer = 0.15; this.order(p.x, p.y); }
-    }
-    const speed = this.rig.distance * 1.4 * dt;
-    let px = 0, pz = 0;
-    if (this.keys.has('ArrowLeft')) px -= 1; if (this.keys.has('ArrowRight')) px += 1;
-    if (this.keys.has('ArrowUp')) pz -= 1; if (this.keys.has('ArrowDown')) pz += 1;
-    const m = this.mouse, edge = 14, W = this.el.clientWidth, H = this.el.clientHeight;
-    if (m.inside && this.pointers.size === 0 && matchMedia('(pointer: fine)').matches) {
-      if (m.x < edge) px -= 1; if (m.x > W - edge) px += 1;
-      if (m.y < edge) pz -= 1; if (m.y > H - edge) pz += 1;
-    }
-    if (px || pz) this.rig.pan(px * speed, pz * speed);
+  /** Analog movement in sim space, length <= 1. */
+  movement(): [number, number] {
+    let f = 0, r = 0;
+    if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) f += 1;
+    if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) f -= 1;
+    if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) r += 1;
+    if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) r -= 1;
+    if (this.stick.id >= 0) { f -= this.stick.y; r += this.stick.x; }
+    const l = Math.hypot(f, r);
+    if (l < 0.12) return [0, 0];
+    if (l > 1) { f /= l; r /= l; }
+    const { fwd, right } = this.cam.basis();
+    return [fwd[0] * f + right[0] * r, fwd[1] * f + right[1] * r];
   }
 }

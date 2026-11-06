@@ -1,7 +1,8 @@
 # Project Lumen
 
-Browser-first, server-authoritative 3D MOBA set in the **Shoals of Aurel** — a floating archipelago over a sea of
-luminous cloud. Visual direction: **"Lacquer & Light"** (see `docs/art/ART_BIBLE.md`).
+Browser-first, server-authoritative **third-person action MOBA** set in **the Skarnveld** — a snow-ringed mountain
+valley where two clans hold barrow-forts at opposite ends. Visual direction: **"Frost & Hearthfire"** — grounded,
+atmospheric open-world-RPG realism (see `docs/art/ART_BIBLE.md`).
 
 > Current stage: **M0 Foundation**. Core gameplay twist pending selection — see `docs/design/TWIST_CONCEPTS.md`.
 
@@ -16,8 +17,11 @@ npm run dev:server     # authoritative server on ws://localhost:8787
 
 URL options: `?quality=low|medium|high`, `?server=ws://host:port`.
 
-Controls — desktop: right/left-click move (hold to steer), wheel zoom, arrows/screen-edge pan, Space recenter, Y camera lock, S stop.
-Touch: tap to move, drag to pan, pinch to zoom.
+Controls — desktop: click to capture the mouse, WASD move, mouse look, wheel zoom (all the way in = first person), V toggles 1st/3rd person, Esc releases.
+Touch: left thumb = virtual stick, right thumb = look, VIEW button toggles 1st/3rd person.
+
+Assets: CC0 textures/models/HDRI are committed under `packages/client/public/assets` (see `CREDITS.md` there).
+Regenerate with `node tools/assets/fetch-assets.mjs [--force]`.
 
 ## Quality
 

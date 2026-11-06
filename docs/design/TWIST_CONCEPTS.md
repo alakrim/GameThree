@@ -3,6 +3,10 @@
 **Status: AWAITING DIRECTOR/STAKEHOLDER SELECTION.** Core gameplay implementation is paused on this decision.
 Everything built so far (deterministic sim, netcode skeleton, renderer, art direction) is twist-agnostic.
 
+> **Update (direction change):** the game is now a third-person / first-person **action MOBA** with grounded
+> open-world-RPG visuals. All four concepts carry over; notes on how each plays from behind the shoulder are in the
+> section at the end.
+
 Each concept changes a different axis of the MOBA formula: **time**, **space**, **identity**, and **information**.
 
 ---
@@ -139,3 +143,19 @@ and a stunning look: it is our "Lacquer & Light" art pillar made literal.
 **Recommended: Lanternfall.** It turns the system every MOBA already has (fog of war) into the defining mechanic,
 touches every layer (economy, vision, objectives, hero identity), fits phones, and fits the visual identity.
 **Echoes** is the boldest pick if we want the most distinctive hook and accept higher readability risk.
+
+---
+
+## How each concept plays in third person
+
+- **Echoes:** stronger in third person — seeing your own ghost run past your shoulder and re-swing your sword is
+  visceral. Readability risk is lower than top-down because there are fewer units on screen at once.
+- **Tidefall:** islands become drifting rock shelves and ice floes on the glacial river; ring-outs into a chasm are very
+  physical from eye level. Spectacle is excellent; telegraphing map shifts needs strong audio/horizon cues.
+- **Vessels:** body-swapping in third person is a dramatic camera moment (spirit flies to the new body). The fixed
+  over-the-shoulder view makes "who am I now?" clear.
+- **Lanternfall:** the best fit for the new look. A torch-lit northern night where you literally cannot see past your
+  light radius; ambushes from the dark pine forest; carrying light down a road at eye level. It also gives the
+  "Frost & Hearthfire" art pillar its gameplay meaning.
+
+The recommendation is unchanged — **Lanternfall** — and has become stronger with the camera change.

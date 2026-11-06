@@ -5,3 +5,5 @@ export * from './map.js';
 export * from './nav.js';
 export * from './world.js';
 export * from './protocol.js';
+export * from './terrain.js';
+export * from './movement.js';

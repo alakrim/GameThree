@@ -23,6 +23,9 @@ export class Interpolator {
     if (this.buf.length > 30) this.buf.shift();
   }
 
+  /** Most recent authoritative snapshot (used for prediction reconciliation). */
+  get latest(): Snapshot | null { return this.buf.length ? this.buf[this.buf.length - 1]!.s : null; }
+
   sample(now: number): Map<number, InterpEntity> {
     const out = new Map<number, InterpEntity>();
     if (!this.buf.length || this.offset === null) return out;

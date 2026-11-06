@@ -3,6 +3,7 @@ import { type MapDef, type Team, type LaneId, createMap } from './map.js';
 import { NavGrid } from './nav.js';
 import { type Vec2, dist, clamp } from './math.js';
 import type { Command, EntitySnapshot, Snapshot } from './protocol.js';
+import { moveWithCollision, sanitizeInput } from './movement.js';
 
 export type EntityKind = 'hero' | 'minion';
 
@@ -22,7 +23,17 @@ export interface Entity {
   laneIdx?: number;
   owner?: string; // player id for heroes
   heroId?: string;
+  /** Buffered analog inputs (one consumed per tick, mirroring client prediction). */
+  inputs?: { seq: number; mx: number; my: number }[];
+  input?: { mx: number; my: number };
+  lastSeq?: number;
+  starve?: number;
 }
+
+export const HERO_SPEED = 5.6;
+const MAX_INPUT_BUFFER = 8;
+/** Repeat the last input for at most this many ticks without new input (covers jitter, stops runaway heroes). */
+export const INPUT_STARVE_TICKS = 6;
 
 export interface WorldOptions { seed?: number; minionWaves?: boolean; waveInterval?: number }
 
@@ -50,7 +61,7 @@ export class World {
     const n = [...this.entities.values()].filter((e) => e.kind === 'hero' && e.team === team).length;
     const ang = (n / 5) * Math.PI * 2;
     const pos = this.nav.nearestWalkable({ x: base.x + Math.cos(ang) * 4, y: base.y + Math.sin(ang) * 4 }) ?? base;
-    return this.add({ kind: 'hero', team, pos: { ...pos }, facing: team === 0 ? Math.PI / 4 : -3 * Math.PI / 4, radius: 0.7, speed: 6.2, hp: 620, maxHp: 620, path: [], moving: false, owner, heroId });
+    return this.add({ kind: 'hero', team, pos: { ...pos }, facing: team === 0 ? Math.PI / 4 : -3 * Math.PI / 4, radius: 0.55, speed: HERO_SPEED, hp: 620, maxHp: 620, path: [], moving: false, owner, heroId, inputs: [], input: { mx: 0, my: 0 }, lastSeq: 0, starve: 0 });
   }
 
   removeOwner(owner: string): void {
@@ -64,6 +75,7 @@ export class World {
     if (this.opts.minionWaves) this.spawnWaves();
     for (const e of this.entities.values()) {
       if (e.kind === 'minion') this.steerMinion(e);
+      if (e.inputs && this.applyInput(e)) continue;
       this.integrate(e);
     }
     this.separate();
@@ -73,7 +85,7 @@ export class World {
   snapshot(): Snapshot {
     const ents: EntitySnapshot[] = [];
     for (const e of this.entities.values()) {
-      ents.push({ id: e.id, k: e.kind === 'hero' ? 0 : 1, t: e.team, x: round2(e.pos.x), y: round2(e.pos.y), f: round2(e.facing), hp: Math.round(e.hp), mh: e.maxHp, m: e.moving ? 1 : 0, o: e.owner, h: e.heroId });
+      ents.push({ id: e.id, k: e.kind === 'hero' ? 0 : 1, t: e.team, x: round2(e.pos.x), y: round2(e.pos.y), f: round2(e.facing), hp: Math.round(e.hp), mh: e.maxHp, m: e.moving ? 1 : 0, o: e.owner, h: e.heroId, sq: e.lastSeq });
     }
     return { tick: this.tick, ents };
   }
@@ -113,9 +125,30 @@ export class World {
           hero.moving = hero.path.length > 0;
           break;
         }
-        case 'stop': hero.path = []; hero.moving = false; break;
+        case 'stop': hero.path = []; hero.moving = false; hero.input = { mx: 0, my: 0 }; break;
+        case 'input': {
+          if (cmd.seq <= (hero.lastSeq ?? 0)) break; // stale / replayed
+          const [mx, my] = sanitizeInput(cmd.mx, cmd.my);
+          hero.inputs!.push({ seq: cmd.seq, mx, my });
+          if (hero.inputs!.length > MAX_INPUT_BUFFER) hero.inputs!.splice(0, hero.inputs!.length - MAX_INPUT_BUFFER);
+          break;
+        }
       }
     }
+  }
+
+  /** Consume one buffered input; returns true if analog movement drove the hero this tick. */
+  private applyInput(e: Entity): boolean {
+    const next = e.inputs!.shift();
+    if (next) { e.input = { mx: next.mx, my: next.my }; e.lastSeq = next.seq; e.starve = 0; }
+    else if (++e.starve! > INPUT_STARVE_TICKS) e.input = { mx: 0, my: 0 }; // client stalled: don't run forever
+    const { mx, my } = e.input!;
+    if (mx === 0 && my === 0) { if (!e.path.length) e.moving = false; return e.path.length === 0; }
+    e.path = [];
+    e.pos = moveWithCollision(this.nav, e.pos, mx * e.speed * DT, my * e.speed * DT);
+    e.facing = Math.atan2(my, mx);
+    e.moving = true;
+    return true;
   }
 
   private spawnWaves(): void {
@@ -127,7 +160,7 @@ export class World {
       for (let i = 0; i < 4; i++) {
         const start = pts[0]!;
         const back = { x: start.x - Math.sign(pts[1]!.x - start.x) * i * 1.4, y: start.y - Math.sign(pts[1]!.y - start.y) * i * 1.4 };
-        this.add({ kind: 'minion', team, pos: this.nav.nearestWalkable(back) ?? { ...start }, facing: 0, radius: 0.45, speed: 3.6, hp: 280, maxHp: 280, path: [], moving: true, lane, laneIdx: 1 });
+        this.add({ kind: 'minion', team, pos: this.nav.nearestWalkable(back) ?? { ...start }, facing: 0, radius: 0.45, speed: 3.4, hp: 280, maxHp: 280, path: [], moving: true, lane, laneIdx: 1 });
       }
     }
   }

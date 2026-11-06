@@ -30,7 +30,7 @@ describe('NavGrid', () => {
   const map = createMap(1337);
   const nav = new NavGrid(map);
   it('finds a path base to base that never crosses obstacles', () => {
-    const from = map.bases[0].pos, to = map.bases[1].pos;
+    const from = { x: map.bases[0].pos.x + 4, y: map.bases[0].pos.y + 4 }, to = { x: map.bases[1].pos.x - 4, y: map.bases[1].pos.y - 4 };
     const path = nav.findPath(from, to)!;
     expect(path).not.toBeNull();
     let prev = from;
