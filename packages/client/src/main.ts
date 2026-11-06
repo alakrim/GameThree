@@ -398,7 +398,7 @@ async function boot() {
       case 'kill': {
         const killer = lastSeen.get(ev.s), victim = lastSeen.get(ev.d);
         if (!victim) return;
-        const label = (e: EntitySnapshot | undefined) => e ? (e.k === 0 ? HEROES[e.h ?? '']?.name ?? 'Hero' : e.k === 2 ? 'Gate tower' : e.k === 5 ? 'Bulwark' : 'Warband') : 'The valley';
+        const label = (e: EntitySnapshot | undefined) => e ? (e.k === 0 ? HEROES[e.h ?? '']?.name ?? 'Hero' : e.k === 2 ? 'Tower' : e.k === 5 ? 'Bulwark' : 'Warband') : 'The valley';
         const ally = (e: EntitySnapshot) => !!me && e.t === me.team;
         hud.killFeed(killer && killer.k === 0 ? { name: label(killer) + (isMe(ev.s) ? ' (you)' : ''), ally: ally(killer) } : killer ? { name: label(killer), ally: ally(killer) } : null,
           { name: label(victim) + (isMe(ev.d) ? ' (you)' : ''), ally: ally(victim) }, ev.a.length);

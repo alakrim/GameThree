@@ -26,7 +26,11 @@ export class BotBrain {
   private phase: number;
   private buildCycle = 0;
   private rng: number;
-  constructor(readonly id: string, public lane: LaneId) { this.phase = id.length % 3; this.rng = [...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7); }
+  /** `seed` (the match seed) varies each bot's decisions between matches; ids alone would replay the same choices forever. */
+  constructor(readonly id: string, public lane: LaneId, seed = 0) {
+    this.phase = id.length % 3;
+    this.rng = [...id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7 ^ Math.imul(seed + 1, 2654435761)) >>> 0;
+  }
 
   /** Deterministic per-bot PRNG (simulation must stay reproducible). */
   private rand(): number { this.rng = (Math.imul(this.rng ^ (this.rng >>> 15), 2246822519) + 0x9e3779b9) >>> 0; return this.rng / 4294967296; }

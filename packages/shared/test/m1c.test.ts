@@ -145,15 +145,15 @@ describe('Halla Lanternkeep', () => {
     secs(w, 3);
     expect(ally.shieldHp).toBe(0);
   });
-  it('Dawnfire Ring heals allies (and Halla) 25% over 3 s and never repairs structures', () => {
+  it('Dawnfire Ring heals allies (and Halla) over 3 s and never repairs structures', () => {
     const w = quiet();
     const h = w.spawnHero('h', 0, 'halla'), ally = w.spawnHero('a', 0, 'hrodvar');
     const wall = addBulwark(w, 0, 'palisade', 8, 12);
     place(h, 4, 10); place(ally, 6, 10);
     ally.hp = 100; h.hp = 100; wall.hp = 100;
     cast(w, 'h', 3, 0); secs(w, 4);
-    expect(ally.hp).toBeCloseTo(100 + ally.maxHp * 0.25, 0);
-    expect(h.hp).toBeCloseTo(100 + h.maxHp * 0.25, 0);
+    expect(ally.hp).toBeCloseTo(100 + ally.maxHp * HEROES.halla!.abilities[2].allyHot!.pct, 0);
+    expect(h.hp).toBeCloseTo(100 + h.maxHp * HEROES.halla!.abilities[2].allyHot!.pct, 0);
     expect(wall.hp).toBe(100);
   });
 });
@@ -289,6 +289,25 @@ describe('structure allowance', () => {
     const [hx, hy] = sites[12]!;
     place(human, hx + 3, hy + 3); w.queue('human', { type: 'build', kind: 'spikes', x: hx, y: hy }); w.step();
     expect(owned('human')).toBe(1);
+  });
+});
+
+describe('Rimetroll tide', () => {
+  it('tide trolls pay no bounty or XP (the tide must not fund the defenders)', () => {
+    const w = quiet();
+    const h = w.spawnHero('h', 0, 'hilde');
+    place(h, 0, 10);
+    const normal = minion(w, 1, 4, 10), tide = minion(w, 1, 4, 11);
+    for (const m of [normal, tide]) { m.unit = 'troll'; m.hp = 1; }
+    tide.tide = true;
+    const g0 = h.gold!, xp0 = h.xp!;
+    w.queue('h', { type: 'act', slot: 0, aim: Math.atan2(11 - 10, 4) }); secs(w, 0.8);
+    expect(tide.hp).toBe(0);
+    expect(h.gold! - g0).toBeLessThan(5);       // passive income only
+    expect(h.xp).toBe(xp0);
+    h.cds![0] = 0; w.queue('h', { type: 'act', slot: 0, aim: 0 }); secs(w, 0.8);
+    expect(normal.hp).toBe(0);
+    expect(h.gold! - g0).toBeGreaterThanOrEqual(120);
   });
 });
 

@@ -74,6 +74,8 @@ export interface Entity {
   gold?: number; income?: number;
   // Wave units (minions, wolves, brutes, trolls)
   unit?: UnitType;
+  /** Rimetroll-tide unit: pays no bounty or XP (the tide exists to end stalemates, not to fund defenders). */
+  tide?: boolean;
   // Player-built structures
   bw?: { type: BulwarkType; level: number; owner: string; cells: number[]; charges: number };
   // Projectiles
@@ -131,6 +133,8 @@ export class World {
   private laneMask: Record<LaneId, Uint8Array> | null = null;
   private heartGoals: Record<Team, number[]> = { 0: [], 1: [] };
   private botSeq = 0;
+  /** Matches played in this world (bots re-roll their decision streams each match). */
+  private resets = 0;
   private readonly opts: Required<WorldOptions>;
   /** Per-match telemetry (reset with the match). `lastSummary` holds the previous match's report. */
   telemetry = new Telemetry();
@@ -177,7 +181,7 @@ export class World {
         const id = `bot:${team}:${++this.botSeq}`;
         const heroId = this.botHeroFor(team, n);
         this.spawnHero(id, team, heroId, true);
-        this.bots.set(id, new BotBrain(id, lanes[n % lanes.length]!));
+        this.bots.set(id, new BotBrain(id, lanes[n % lanes.length]!, this.opts.seed + this.resets * 7919));
       }
       this.assignBotLanes(team);
     }
@@ -201,7 +205,7 @@ export class World {
       const lane = this.bots.get(b.owner!)!.lane;
       this.entities.delete(b.id); this.telemetry.heroes.delete(b.owner!);
       this.spawnHero(b.owner!, team, id, true);
-      this.bots.set(b.owner!, new BotBrain(b.owner!, lane));
+      this.bots.set(b.owner!, new BotBrain(b.owner!, lane, this.opts.seed + this.resets * 7919));
     });
     this.assignBotLanes(team);
   }
@@ -219,8 +223,12 @@ export class World {
     if (!free.length) free.push('mid');
     const supports = bots.filter((b) => role(b) === 'Mystic'), others = bots.filter((b) => role(b) !== 'Mystic');
     others.forEach((b, i) => { this.bots.get(b.owner!)!.lane = free[i % free.length]!; });
+    // In 3v3 every lane needs a hero (an empty lane bleeds structures and leaks), so supports duo only from 4 heroes up.
+    const teamSize = [...this.entities.values()].filter((e) => e.kind === 'hero' && e.team === team).length;
     const carry = others.find((b) => role(b) === 'Marksman' || role(b) === 'Runecaster') ?? others[0];
-    for (const s of supports) this.bots.get(s.owner!)!.lane = carry ? this.bots.get(carry.owner!)!.lane : 'mid';
+    supports.forEach((s, i) => {
+      this.bots.get(s.owner!)!.lane = teamSize >= 4 && carry ? this.bots.get(carry.owner!)!.lane : free[(others.length + i) % free.length]!;
+    });
   }
 
   queue(playerId: string, cmd: Command): void { this.pending.push({ playerId, cmd }); }
@@ -701,7 +709,7 @@ export class World {
     }
     this.payBounty(t, src);
     // XP: shared between enemy heroes nearby (+ the killer if it's a hero).
-    const xp = t.kind === 'minion' ? (t.unit === 'troll' ? XP.minion * 6 : t.unit === 'brute' ? XP.minion * 3 : XP.minion) : t.kind === 'hero' ? XP.heroBase + XP.heroPerLevel * (t.level ?? 1) : t.kind === 'tower' ? XP.tower : 0;
+    const xp = t.tide ? 0 : t.kind === 'minion' ? (t.unit === 'troll' ? XP.minion * 6 : t.unit === 'brute' ? XP.minion * 3 : XP.minion) : t.kind === 'hero' ? XP.heroBase + XP.heroPerLevel * (t.level ?? 1) : t.kind === 'tower' ? XP.tower : 0;
     if (xp > 0) {
       const takers = [...this.entities.values()].filter((h) => h.kind === 'hero' && h.team !== t.team && !h.deadTicks && (t.kind === 'tower' || dist(h.pos, t.pos) < XP.shareRadius || h.id === src?.id));
       for (const h of takers) this.grantXp(h, t.kind === 'tower' ? xp : xp / Math.max(1, takers.length) * (takers.length > 1 ? 1.3 : 1));
@@ -1011,7 +1019,9 @@ export class World {
       const units: UnitType[] = Array(WAVES.perLane).fill('minion');
       if (this.wave >= WAVES.bossFirst && this.wave % WAVES.bossEvery === 0) units.push('troll');
       const t = (this.tick - this.matchStart) / TICK_RATE;
-      if (t >= WAVES.stallFrom) for (let k = 0; k < 1 + 2 * Math.floor((t - WAVES.stallFrom) / WAVES.stallStep); k++) units.push('troll');
+      const tide = t >= WAVES.stallFrom ? 1 + 2 * Math.floor((t - WAVES.stallFrom) / WAVES.stallStep) : 0;
+      const firstTide = units.length;
+      for (let k = 0; k < tide; k++) units.push('troll');
       units.push(...this.sendQueue[team][lane]);
       this.sendQueue[team][lane] = [];
       const pts = this.lanePoints(lane, team);
@@ -1022,7 +1032,7 @@ export class World {
         const scale = u === 'minion' || u === 'troll' ? hpMul : 1 + (hpMul - 1) * 0.5;
         this.add({ kind: 'minion', unit: u, team, pos: this.nav.nearestWalkable(back) ?? { ...start }, facing: Math.atan2(dir.y, dir.x), radius: def.radius, speed: def.speed,
           hp: Math.round(def.hp * scale), maxHp: Math.round(def.hp * scale), path: [], moving: true, damage: def.damage * dmgMul, atkTicks: 0, stunTicks: 0,
-          slowTicks: 0, slowPct: 0, hasteTicks: 0, hastePct: 0, lane, laneIdx: 1 });
+          slowTicks: 0, slowPct: 0, hasteTicks: 0, hastePct: 0, lane, laneIdx: 1, tide: i >= firstTide && i < firstTide + tide ? true : undefined });
       });
     }
   }
@@ -1129,10 +1139,12 @@ export class World {
     }
     let t = e.target !== undefined ? this.entities.get(e.target) : undefined;
     const structRange = (c: Entity) => c.kind === 'tower' || c.kind === 'bulwark';
+    if (t && e.tide && t.kind === 'minion') t = undefined; // the tide marches past wave units
     if (!t || !this.targetable(t) || dist(t.pos, e.pos) > MINION.leash || (structRange(t) && dist(t.pos, e.pos) > 4 + t.radius)) {
       t = undefined; let bestD = MINION.aggro;
       for (const c of this.entities.values()) {
         if (c.team === e.team || !this.targetable(c) || c.kind === 'projectile' || c.kind === 'heart') continue;
+        if (e.tide && c.kind === 'minion') continue; // …so mirrored tides don't cancel each other out
         const raw = dist(c.pos, e.pos) - c.radius;
         if (structRange(c) && raw > 4) continue; // walk past structures unless they're right there
         const d = raw + (c.kind === 'hero' ? 2 : 0) + (structRange(c) ? 1 : 0);
@@ -1387,7 +1399,7 @@ export class World {
   /** Gold: last-hitting hero (or the owner of the structure that killed it) gets the bounty; otherwise nearby heroes share. */
   private payBounty(t: Entity, src: Entity | undefined): void {
     let bounty = 0;
-    if (t.kind === 'minion') bounty = UNITS[t.unit ?? 'minion'].bounty;
+    if (t.kind === 'minion') bounty = t.tide ? 0 : UNITS[t.unit ?? 'minion'].bounty;
     else if (t.kind === 'hero') bounty = ECON.heroBounty;
     else if (t.kind === 'bulwark') bounty = Math.round(investedIn(t.bw!.type, t.bw!.level) * ECON.bulwarkBountyFrac);
     else if (t.kind === 'tower') { for (const h of this.entities.values()) if (h.kind === 'hero' && h.team !== t.team) this.earn(h, ECON.gateTowerTeam); return; }
@@ -1444,6 +1456,8 @@ export class World {
     this.sendQueue = { 0: { top: [], mid: [], bot: [] }, 1: { top: [], mid: [], bot: [] } };
     this.matchStart = this.tick + 1;
     this.telemetry = new Telemetry();
+    this.resets++;
+    for (const [id, b] of this.bots) this.bots.set(id, new BotBrain(id, b.lane, this.opts.seed + this.resets * 7919));
     this.spawnStructures();
     for (const h of heroes) {
       const n = this.spawnHero(h.owner!, h.team, h.heroId, h.bot);

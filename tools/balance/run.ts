@@ -3,17 +3,19 @@
  * into a per-hero / per-match report (HEROES.md §6.6, TWIST_BULWARKS.md §14).
  *
  *   npm run balance -- [matches=40] [out=docs/balance/REPORT.md] [capMinutes=30]
+ *   npm run balance -- report <results.json> [out.md] [capMinutes]   (re-render a report from saved results)
  *
- * Rosters are drawn per match from a seeded shuffle (3 distinct heroes per team, mirrors allowed across teams),
- * and sides alternate so map-side bias is visible separately from hero strength.
+ * Rosters are drawn from a seeded shuffle (3 distinct heroes per team, mirrors allowed across teams). Matches come in
+ * **mirrored pairs**: the same seed and line-ups are played twice with the sides swapped, so the Dawn win rate measures
+ * pure map-side bias and hero win rates are not confounded by side.
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { cpus } from 'node:os';
-import { writeFileSync, mkdirSync } from 'node:fs';
+import { writeFileSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { World, HERO_IDS, HEROES, TICK_RATE, ITEMS, type MatchSummary, type ItemId } from '@lumen/shared';
 
-interface Job { seed: number; capMinutes: number }
+interface Job { seed: number; capMinutes: number; swap: boolean }
 interface Result { seed: number; rosters: [string[], string[]]; summary: MatchSummary; capped: boolean; msPerTick: number }
 
 function shuffle<T>(a: T[], seed: number): T[] {
@@ -21,10 +23,11 @@ function shuffle<T>(a: T[], seed: number): T[] {
   const o = [...a]; for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [o[i], o[j]] = [o[j]!, o[i]!]; } return o;
 }
 
-function play({ seed, capMinutes }: Job): Result {
+function play({ seed, capMinutes, swap }: Job): Result {
   const w = new World({ seed, botsPerTeam: 3 });
   w.fillBots();
-  const rosters: [string[], string[]] = [shuffle(HERO_IDS, seed * 7 + 1).slice(0, 3), shuffle(HERO_IDS, seed * 13 + 5).slice(0, 3)];
+  const a = shuffle(HERO_IDS, seed * 7 + 1).slice(0, 3), b = shuffle(HERO_IDS, seed * 13 + 5).slice(0, 3);
+  const rosters: [string[], string[]] = swap ? [b, a] : [a, b];
   w.setBotHeroes(0, rosters[0]); w.setBotHeroes(1, rosters[1]);
   let summary: MatchSummary | null = null;
   w.onMatchEnd = (s) => { summary = s; };
@@ -37,11 +40,17 @@ function play({ seed, capMinutes }: Job): Result {
 
 if (!isMainThread) {
   for (const job of workerData.jobs as Job[]) parentPort!.postMessage(play(job));
+} else if (process.argv[2] === 'report') {
+  const saved = JSON.parse(readFileSync(process.argv[3]!, 'utf8')) as (MatchSummary & { seed: number; rosters: [string[], string[]]; capped: boolean; msPerTick?: number })[];
+  const rs: Result[] = saved.map(({ seed, rosters, capped, msPerTick, ...summary }) => ({ seed, rosters, capped, msPerTick: msPerTick ?? 0, summary: summary as MatchSummary }));
+  const md = report(rs, Number(process.argv[5] ?? 30));
+  const out = process.argv[4] ?? 'docs/balance/REPORT.md';
+  mkdirSync(dirname(out), { recursive: true }); writeFileSync(out, md); console.log(md);
 } else {
   const matches = Number(process.argv[2] ?? 40), out = process.argv[3] ?? 'docs/balance/REPORT.md', capMinutes = Number(process.argv[4] ?? 30);
   const threads = Math.max(1, Math.min(cpus().length, matches));
   const jobs: Job[][] = Array.from({ length: threads }, () => []);
-  for (let i = 0; i < matches; i++) jobs[i % threads]!.push({ seed: 1000 + i, capMinutes });
+  for (let i = 0; i < matches; i++) jobs[i % threads]!.push({ seed: 1000 + (i >> 1), capMinutes, swap: (i & 1) === 1 });
   const results: Result[] = [];
   const t0 = Date.now();
   await Promise.all(jobs.map((j) => new Promise<void>((resolve, reject) => {
@@ -52,10 +61,10 @@ if (!isMainThread) {
     w.on('error', reject); w.on('exit', () => resolve());
   })));
   console.log(`\n${matches} matches in ${((Date.now() - t0) / 1000).toFixed(0)} s on ${threads} threads`);
-  const md = report(results.sort((a, b) => a.seed - b.seed), capMinutes);
+  const md = report(results.sort((a, b) => a.seed - b.seed || a.rosters[0].join().localeCompare(b.rosters[0].join())), capMinutes);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, md);
-  writeFileSync(out.replace(/\.md$/, '.json'), JSON.stringify(results.map((r) => ({ seed: r.seed, rosters: r.rosters, capped: r.capped, ...r.summary })), null, 0));
+  writeFileSync(out.replace(/\.md$/, '.json'), JSON.stringify(results.map((r) => ({ seed: r.seed, rosters: r.rosters, capped: r.capped, msPerTick: r.msPerTick, ...r.summary })), null, 0));
   console.log(md);
 }
 
@@ -69,7 +78,8 @@ function report(rs: Result[], capMinutes: number): string {
   lines.push('## Matches', '');
   lines.push(`| Metric | Value |`, `|---|---|`);
   lines.push(`| Decided / capped | ${decided.length} / ${rs.length - decided.length} |`);
-  lines.push(`| Dawn (team 0) win rate | ${decided.length ? pct(decided.filter((r) => r.summary.winner === 0).length / decided.length) : '–'} |`);
+  const dawn = decided.length ? decided.filter((r) => r.summary.winner === 0).length / decided.length : 0;
+  lines.push(`| Dawn (team 0) win rate — mirrored pairs, so this is map-side bias | ${decided.length ? `${pct(dawn)} ± ${pct(Math.sqrt((dawn * (1 - dawn)) / decided.length))}` : '–'} |`);
   lines.push(`| Match length (min) avg / min / max | ${f(avg(mins), 1)} / ${f(Math.min(...mins), 1)} / ${f(Math.max(...mins), 1)} |`);
   const ftt = rs.map((r) => r.summary.firstGateTowerAt).filter((x): x is number => x !== null);
   lines.push(`| First gate tower falls (min) | ${ftt.length ? f(avg(ftt) / 60, 1) : 'never'} (${ftt.length}/${rs.length} matches) |`);
@@ -78,7 +88,7 @@ function report(rs: Result[], capMinutes: number): string {
   lines.push(`| Trolls killed per match | ${f(avg(rs.map((r) => r.summary.trollKills.length)), 1)} |`);
   lines.push(`| Sim cost | ${f(avg(rs.map((r) => r.msPerTick)), 2)} ms/tick |`, '');
 
-  lines.push('## Heroes', '', 'Per-minute rates normalise for match length. Win rate counts decided matches only.', '');
+  lines.push('## Heroes', '', 'Per-minute rates normalise for match length. Win rate counts decided matches only; ± is one standard error.', '');
   lines.push('| Hero | Role | Picks | Win rate | K / D / A per match | Hero dmg/min | Struct dmg/min | Heal+shield/min | CC dealt (s/match) | Gold/min |', '|---|---|---|---|---|---|---|---|---|---|');
   for (const id of HERO_IDS) {
     const rows = rs.flatMap((r) => r.summary.heroes.filter((h) => h.heroId === id).map((h) => ({ h, r })));
@@ -87,7 +97,8 @@ function report(rs: Result[], capMinutes: number): string {
     const wins = dec.filter(({ h, r }) => r.summary.winner === h.team).length;
     const m = (fn: (x: (typeof rows)[number]) => number) => avg(rows.map(fn));
     const perMin = (fn: (h: (typeof rows)[number]['h']) => number) => m(({ h, r }) => fn(h) / Math.max(1, r.summary.seconds / 60));
-    lines.push(`| ${HEROES[id]!.name} | ${HEROES[id]!.role} | ${rows.length} | ${dec.length ? pct(wins / dec.length) : '–'} | ${f(m(({ h }) => h.kills), 1)} / ${f(m(({ h }) => h.deaths), 1)} / ${f(m(({ h }) => h.assists), 1)} | ${f(perMin((h) => h.dmgHeroes))} | ${f(perMin((h) => h.dmgStructs))} | ${f(perMin((h) => h.healing + h.shielding))} | ${f(m(({ h }) => h.ccDealt), 1)} | ${f(perMin((h) => h.goldEarned))} |`);
+    const wr = dec.length ? wins / dec.length : 0, se = dec.length ? Math.sqrt((wr * (1 - wr)) / dec.length) : 0;
+    lines.push(`| ${HEROES[id]!.name} | ${HEROES[id]!.role} | ${rows.length} | ${dec.length ? `${pct(wr)} ± ${pct(se)}` : '–'} | ${f(m(({ h }) => h.kills), 1)} / ${f(m(({ h }) => h.deaths), 1)} / ${f(m(({ h }) => h.assists), 1)} | ${f(perMin((h) => h.dmgHeroes))} | ${f(perMin((h) => h.dmgStructs))} | ${f(perMin((h) => h.healing + h.shielding))} | ${f(m(({ h }) => h.ccDealt), 1)} | ${f(perMin((h) => h.goldEarned))} |`);
   }
   lines.push('');
   lines.push('## Economy (per hero, per match)', '');
@@ -104,6 +115,12 @@ function report(rs: Result[], capMinutes: number): string {
   const rej = new Map<string, number>();
   for (const r of rs) for (const [k, n] of Object.entries(r.summary.rejections)) rej.set(k, (rej.get(k) ?? 0) + n);
   lines.push(`Command rejections (all matches): ${[...rej].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `"${k}" ×${n}`).join(', ') || 'none'}.`, '');
+  lines.push('## Caveats', '',
+    '- These are **bot** matches. Bots aim skillshots at a target\'s current position, kite well with ranged kits and play melee and',
+    '  support kits more simply than people do, so ranged heroes are favoured relative to human play. Use the report to find outliers',
+    '  and regressions between builds, not as final balance truth.',
+    '- With ~30 decided picks per hero, one standard error is about 9 points: treat single-batch differences inside that as noise,',
+    '  and look for heroes that stay outside 45–55% across several batches.', '');
   return lines.join('\n');
 }
 

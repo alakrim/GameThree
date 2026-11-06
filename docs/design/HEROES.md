@@ -320,11 +320,13 @@ differ from §4 the reason is given here. Shipped numbers are level-1 base value
 
 | Hero | Shipped deviations from §4 | Why |
 |---|---|---|
-| Hrodvar | Cooldowns Q 9 s, E 7 s, R 45 s (§4.1 proposal confirmed except E 8 → 7) | E is his only non-dash damage tool between swings |
-| Sigrun | Ice Lance 7.5 s (spec proposal 8), Glacial Burst 45 s | Batch 2: 58% win rate and the best K/D at Q 6 s / R 40 s |
-| Hilde | Basic 17 m (spec 18); Split Shot 90 (+15) dmg, 8 s (spec 7); Winter Rain 7 m radius (spec 9), 1.6 s lead (spec 2.5), 40 (+6) per volley | Highest win rate in batches 2–3 (58–61%). A 9 m, nine-volley zone was inescapable for melee heroes; the shorter lead keeps it a reaction test without the telegraph overstaying |
-| Brynna | Basic reach 5.5 m (spec 6), reel 0.8 m (spec 0.5) every third landed jab; Last Link pulls the target **all the way to her** (up to 13 m) and stuns on arrival | "Grapples to her" read better than a fixed 6 m drag; the stun is applied on arrival (not on hit), so a palisade or wall that stops the pull still stuns where the target lands |
-| Halla | HP 610 (+58); basic 38; Lantern Beam heals 165 (+24), burns 60 (+9), 8 s; Thread shield 90 (+14) + 12% max HP (spec 10%); Dawnfire 45 s (spec 50) | 33% → 43% win rate across tuning passes; bots now pair her with the team's ranged carry so her kit has a target |
+| Hrodvar | Cooldowns Q 9 s, E 7 s, R 45 s | §4.1 proposal, E one second shorter: his only non-dash damage tool between swings |
+| Sigrun | Ice Lance 100 (+17), 7.5 s (proposal 8 s); Glacial Burst 45 s | 58–62% win rate and the best K/D in early batches at Q 6 s / R 40 s / 110 dmg |
+| Hilde | HP 520 (+52); basic 43 (+6), 17 m (spec 18), 1.08 s; Split Shot 90 (+15), 8 s (spec 7); Winter Rain 7 m radius (spec 9), 1.6 s lead (spec 2.5), nine volleys of 36 (+6) | Above 55% in every batch. A 9 m, nine-volley zone was inescapable for melee heroes; the shorter lead keeps it a reaction test without the telegraph overstaying |
+| Brynna | HP 790 (+84); basic reach 5.5 m (spec 6), reel 0.8 m (spec 0.5) every third landed jab; Chain Whirl 95 (+15); Last Link 40 s (spec 45) and pulls the target **all the way to her** (up to 13 m), stunning on arrival | "Grapples to her" read better than a fixed 6 m drag. The stun lands on arrival, not on hit, so a wall that stops the pull still stuns where the target ends up. Survivability raised after 39–43% batches |
+| Halla | HP 610 (+58); basic 38; Lantern Beam heals 180 (+25), burns 60 (+9), 7 s (spec 9); Thread shield 90 (+14) + 12% max HP (spec 10%), 8 s (spec 9); Dawnfire 30% over 3 s (spec 25%), 45 s (spec 50) | Lowest win rate in every batch (33–43%); bots under-play supports, so she was tuned up in small steps rather than to parity |
+
+See `docs/balance/HISTORY.md` for the batch-by-batch evidence.
 
 Rules adopted from TWIST_BULWARKS §9 and §6.4:
 

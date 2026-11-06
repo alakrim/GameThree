@@ -49,7 +49,7 @@ node qa/smoke.mjs      # browser smoke test (needs dev client + server running a
 - `docs/design/TWIST_CONCEPTS.md` — the original four core-mechanic candidates
 - `docs/design/HEROES.md` — 15-hero roster, launch slice, balance framework, M1c implementation notes
 - `docs/design/ITEMS.md` — items v0, repair, Hearth Recall
-- `docs/balance/REPORT.md` — latest telemetry-driven balance report
+- `docs/balance/REPORT.md` — latest telemetry-driven balance report (`HISTORY.md`: every batch and what it changed)
 - `docs/art/ART_BIBLE.md` — art bible
 - `docs/tech/ARCHITECTURE.md` — architecture, netcode, rendering, budgets
 - `docs/ROADMAP.md` — milestones

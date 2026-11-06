@@ -291,7 +291,7 @@ Decisions taken while implementing the launch-slice heroes, items and the first 
 | Send income (risk 2) | Capped at +40 per wave above base | As proposed |
 | Early boss (risk 4) | First Rimetroll at wave 10 (5:00), then every 5th wave | Batch 2: matches ended by leaks alone at 4–7 min |
 | Structure cap (risk 6) | 10 per hero and 40 per team | A human joining a bot-filled match found the team cap full and could not build |
-| Stall (§11, "no timer") | **Rimetroll tide from 18:00**: every wave adds 1 troll per lane, +2 more every 3 minutes | Batch 1: 8/8 bot matches stalemated at 30 min (only 78 Heartstone HP leaked per match) |
+| Stall (§11, "no timer") | **Rimetroll tide from 18:00**: every wave adds 1 troll per lane, +2 more every 3 minutes. Tide trolls march past enemy wave units (they fight only structures and heroes in their way) and pay no bounty or XP | Batch 1: 8/8 bot matches stalemated at 30 min (78 Heartstone HP leaked per match). Batches 4–5: the two mirrored tides met mid-lane and annihilated each other (~950 trolls killed after 18:00 in capped matches, zero leaks) while their bounties funded the defenders |
 | Tower / Heartstone HP | Gate and outer towers 4,000 (was 2,600); Heartstone 5,000 (was 4,200) | Batch 2: first gate tower fell at 3.5–4 min, before the §2 "siege" phase |
 | Assists | 50 g to each enemy hero who damaged the victim in the last 10 s | Supports and Vanguards had no gold from fights they won |
 | Spawn | Heroes (re)spawn on the gate side of their Heartstone | Spawning behind it put the first build site ~25 m away |
