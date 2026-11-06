@@ -14,7 +14,8 @@
     "build": "npm run build -w @lumen/client",
     "typecheck": "tsc -p packages/shared && tsc -p packages/server && tsc -p packages/client",
     "test": "vitest run",
-    "bench": "tsx packages/shared/bench/sim.bench.ts"
+    "bench": "tsx packages/shared/bench/sim.bench.ts",
+    "balance": "tsx tools/balance/run.ts"
   },
   "devDependencies": {
     "@gltf-transform/cli": "^4.1.1",

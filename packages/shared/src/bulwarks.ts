@@ -59,8 +59,14 @@ export const ECON = {
   startGold: 150, passivePerSec: 1, baseIncome: 40,
   bountyShare: 0.5, shareRadius: 14, heroBounty: 200, bulwarkBountyFrac: 0.4, gateTowerTeam: 150,
   sellRefund: 0.7, buildRange: 14, interactRange: 8, maxPerTeam: 40, territoryMargin: 10,
+  /** Gold to each assisting hero on a hero kill; send income is capped (TWIST_BULWARKS §13 risk 2). */
+  assistGold: 50, sendIncomeCap: 40,
+  /** Structure caps (TWIST_BULWARKS §13 risk 6): each hero may own 10, and a team 40 in total — so a player joining
+   *  a bot match always has their own allowance. */
+  capPerHero: 10,
 };
 
-export const WAVES = { interval: 30, first: 5, perLane: 4, hpGrowth: 0.08, dmgGrowth: 0.05, bossEvery: 5 };
+/** `stallFrom` (s): the Rimetroll tide — every wave after this adds one troll per lane, +2 more each `stallStep` s. */
+export const WAVES = { interval: 30, first: 5, perLane: 4, hpGrowth: 0.08, dmgGrowth: 0.05, bossEvery: 5, bossFirst: 10, stallFrom: 18 * 60, stallStep: 3 * 60 };
 /** Off-lane cells cost this much more in the minion flow field (keeps waves in their lane, mazed by walls). */
 export const OFF_LANE_COST = 3;

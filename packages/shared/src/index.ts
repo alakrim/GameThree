@@ -10,3 +10,5 @@ export * from './movement.js';
 export * from './heroes.js';
 export * from './bot.js';
 export * from './bulwarks.js';
+export * from './items.js';
+export * from './telemetry.js';

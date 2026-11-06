@@ -275,3 +275,28 @@ Leaks favour the defender only while the lane holds. One breached lane can be wa
 - **Caltrops:** charges consumed and time to expiry.
 - **Bosses:** time to kill a troll and where it died.
 - **Refunds:** sell count and gold returned.
+
+## 15. M1c resolutions (implemented)
+
+Decisions taken while implementing the launch-slice heroes, items and the first telemetry-driven balance pass
+(`npm run balance`; latest report in `docs/balance/REPORT.md`). Where they change numbers above, these win.
+
+| Topic | Decision | Evidence / reason |
+|---|---|---|
+| Repair (§4, open question) | Added as a paid channel, not a heal: F on a friendly bulwark, 7% HP/s, full repair = 45% of invested gold. See `ITEMS.md` §3 | Fortress archetype had no answer to erosion besides sell-and-rebuild |
+| Heals vs structures (§9) | Unchanged: heals never repair structures | — |
+| Area damage vs structures (§9) | 50% (ground/self AoE, splash, burns) | As proposed |
+| Projectiles vs palisades (§9, risk 8) | Enemy palisades absorb ground skillshots (they take the hit); hooks and ally threads stop on them; **own** palisades let your shots pass; arcing volleys (Winter Rain, catapults) ignore walls | Shooting over your own wall is the defender's advantage; the risk-8 worry is about attacking *into* a maze |
+| Pulls and knockbacks (§9) | Stop at walls and palisades; Last Link's stun lands wherever the pull ends | As proposed |
+| Send income (risk 2) | Capped at +40 per wave above base | As proposed |
+| Early boss (risk 4) | First Rimetroll at wave 10 (5:00), then every 5th wave | Batch 2: matches ended by leaks alone at 4–7 min |
+| Structure cap (risk 6) | 10 per hero and 40 per team | A human joining a bot-filled match found the team cap full and could not build |
+| Stall (§11, "no timer") | **Rimetroll tide from 18:00**: every wave adds 1 troll per lane, +2 more every 3 minutes | Batch 1: 8/8 bot matches stalemated at 30 min (only 78 Heartstone HP leaked per match) |
+| Tower / Heartstone HP | Gate and outer towers 4,000 (was 2,600); Heartstone 5,000 (was 4,200) | Batch 2: first gate tower fell at 3.5–4 min, before the §2 "siege" phase |
+| Assists | 50 g to each enemy hero who damaged the victim in the last 10 s | Supports and Vanguards had no gold from fights they won |
+| Spawn | Heroes (re)spawn on the gate side of their Heartstone | Spawning behind it put the first build site ~25 m away |
+
+Bot behaviour added for these systems: kit-aware casting, Mystic duo-laning with the ranged carry, item budget
+(one item about every three minutes; bulwark spending leaves room for the next item), Hearth Recall to shop,
+repairs when no enemy is near, no futile builds at the cap, and a team siege of the weakest enemy lane from minute 12
+or once a gate tower has fallen.

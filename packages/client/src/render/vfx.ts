@@ -155,6 +155,116 @@ export class Vfx {
     }, () => { core.geometry.dispose(); (core.material as THREE.Material).dispose(); });
   }
 
+  /** Winter Rain volley: a handful of arrows streak down into the circle and kick up snow. */
+  arrowVolley(cx: number, cz: number, r: number, n = 7) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.sqrt(Math.random()) * r;
+      const x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d, y = this.ground(x, z);
+      const delay = Math.random() * 0.2;
+      const arrow = makeArrow(0.8);
+      const from = new THREE.Vector3(x - 3, y + 16, z - 1.5), to = new THREE.Vector3(x, y + 0.35, z);
+      const dir = to.clone().sub(from).normalize();
+      arrow.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
+      arrow.visible = false;
+      let landed = false;
+      this.add(arrow, 0.32 + delay + 0.9, (p, _dt) => {
+        const t = (p * (0.32 + delay + 0.9) - delay) / 0.32;
+        arrow.visible = t > 0;
+        if (t <= 1) arrow.position.lerpVectors(from, to, Math.max(0, t));
+        else if (!landed) { landed = true; this.emit(to, 6, { color: 0xe6eef5, speed: 1.6, up: 1.5, life: 0.5, size: 0.22, gravity: 5 }); }
+      });
+    }
+  }
+
+  /** Chain links stretched between two moving points (hooks, reels) for `dur` seconds. */
+  chain(from: () => THREE.Vector3 | null, to: () => THREE.Vector3 | null, dur: number, links = 28) {
+    const mesh = new THREE.InstancedMesh(chainLinkGeo(), chainMat(), links);
+    mesh.frustumCulled = false;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), tw = new THREE.Quaternion(), sc = new THREE.Vector3(1, 1, 1), pos = new THREE.Vector3(), X = new THREE.Vector3(1, 0, 0);
+    this.add(mesh, dur, (p) => {
+      const a = from(), b = to();
+      if (!a || !b) { mesh.visible = false; return; }
+      mesh.visible = true;
+      const dir = b.clone().sub(a), len = dir.length(); dir.normalize();
+      q.setFromUnitVectors(X, dir);
+      const sag = Math.min(0.6, len * 0.04) * (1 - p);
+      for (let i = 0; i < links; i++) {
+        const k = (i + 0.5) / links;
+        pos.copy(a).addScaledVector(dir, len * k); pos.y -= Math.sin(k * Math.PI) * sag;
+        tw.setFromAxisAngle(X, (i % 2) * Math.PI / 2);
+        sc.setScalar(Math.min(1.2, (len / links) / 0.09));
+        m.compose(pos, q.clone().multiply(tw), sc);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    });
+  }
+
+  /** Healing: warm motes rising around a body. */
+  heal(p: THREE.Vector3, big = false) {
+    this.emit(p.clone().setY(p.y + 0.6), big ? 26 : 12, { color: 0xffe08a, speed: 0.6, up: 4, life: 1.0, size: 0.2, gravity: -2.2, spread: 0.9, dir: new THREE.Vector3(0, 1, 0) });
+    this.emit(p.clone().setY(p.y + 0.4), big ? 10 : 5, { color: 0x9fe6a0, speed: 0.5, up: 3, life: 0.9, size: 0.16, gravity: -1.8, spread: 0.7, dir: new THREE.Vector3(0, 1, 0) });
+  }
+
+  /** Dawnfire Ring: a golden ring sweeps out over the ground and a warm glow lingers for the heal's duration. */
+  dawn(cx: number, cz: number, r: number, dur = 3) {
+    const y = this.ground(cx, cz);
+    const geo = discOnGround(cx, cz, r, this.ground);
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uT: { value: 0 }, uC: { value: new THREE.Color(0xffc870) } },
+      vertexShader: 'varying vec2 vL; void main(){ vL = uv * 2.0 - 1.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform float uT; uniform vec3 uC; varying vec2 vL;
+        void main(){ float d = length(vL); if (d > 1.0) discard;
+          float sweep = smoothstep(0.08, 0.0, abs(d - min(1.0, uT * 3.0))) * (1.0 - smoothstep(0.3, 0.45, uT));
+          float rim = smoothstep(0.92, 0.985, d) * (1.0 - smoothstep(0.985, 1.0, d));
+          float fade = 1.0 - smoothstep(0.75, 1.0, uT);
+          float body = (0.12 + 0.08 * sin(d * 18.0 - uT * 20.0)) * (1.0 - d * 0.6);
+          gl_FragColor = vec4(uC * 1.8, (sweep * 0.9 + rim * 0.7 + body) * fade); }`,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    });
+    const m = new THREE.Mesh(geo, mat); m.renderOrder = 4;
+    let acc = 0;
+    this.add(m, dur, (p, dt) => {
+      mat.uniforms.uT!.value = p;
+      acc += dt; if (acc > 0.05) { acc = 0; const a = Math.random() * 6.28, d = Math.random() * r; this.emit(new THREE.Vector3(cx + Math.cos(a) * d, y + 0.2, cz + Math.sin(a) * d), 1, { color: 0xffd27a, speed: 0.3, up: 3, life: 1.2, size: 0.18, gravity: -1.5, dir: new THREE.Vector3(0, 1, 0) }); }
+    }, () => { geo.dispose(); mat.dispose(); });
+    this.flash(new THREE.Vector3(cx, y + 2, cz), 0xffc870, 30, 0.8);
+  }
+
+  /** Chain Whirl: a spinning ring of iron sweeping out to the radius. */
+  whirl(c: THREE.Vector3, r: number) {
+    const geo = new THREE.RingGeometry(r * 0.82, r, 48, 1, 0, Math.PI * 1.6).rotateX(-Math.PI / 2);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xcfd6dd, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, map: arcTex() });
+    const m = new THREE.Mesh(geo, mat); m.position.copy(c).setY(c.y + 1.0);
+    this.add(m, 0.45, (p) => { m.rotation.y = -p * Math.PI * 3; mat.opacity = 0.7 * (1 - p); m.scale.setScalar(0.6 + p * 0.4); }, () => { geo.dispose(); mat.dispose(); });
+    this.dust(c.clone().setY(c.y + 0.2), 26, 0x9a958a);
+  }
+
+  /** Cairn Snare springing shut: rope ring cinches in, wood chips and snow. */
+  snare(p: THREE.Vector3) {
+    const geo = new THREE.TorusGeometry(1, 0.05, 6, 32).rotateX(Math.PI / 2);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xb8a27a, roughness: 1 });
+    const m = new THREE.Mesh(geo, mat); m.position.copy(p).setY(p.y + 0.15);
+    this.add(m, 0.9, (t) => { const k = t < 0.25 ? 1 - (t / 0.25) * 0.72 : 0.28; m.scale.setScalar(k); m.position.y = p.y + 0.15 + (t < 0.25 ? 0 : (t - 0.25) * 0.3); }, () => { geo.dispose(); mat.dispose(); });
+    this.emit(p.clone().setY(p.y + 0.3), 18, { color: 0xd8d0c0, speed: 3, up: 1.2, life: 0.5, size: 0.16, gravity: 8 });
+  }
+
+  /** Hammer-on-timber sparks and chips (repairs). */
+  sparks(p: THREE.Vector3) {
+    this.emit(p, 6, { color: 0xffc070, speed: 4, up: 1.6, life: 0.35, size: 0.1, gravity: 12 });
+    this.emit(p, 3, { color: 0x8a6a48, speed: 2, up: 1, life: 0.6, size: 0.14, gravity: 9 });
+  }
+
+  /** Hearth Recall arrival / departure: column of warm light and a rising swirl. */
+  recall(p: THREE.Vector3) {
+    const geo = new THREE.CylinderGeometry(0.9, 1.1, 6, 24, 1, true).translate(0, 3, 0);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffc870, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, map: columnTex() });
+    const m = new THREE.Mesh(geo, mat); m.position.copy(p);
+    this.add(m, 1.0, (t) => { mat.opacity = 0.55 * (1 - t); m.scale.set(1 - t * 0.6, 1 + t * 0.5, 1 - t * 0.6); }, () => { geo.dispose(); mat.dispose(); });
+    this.heal(p, true);
+    this.flash(p.clone().setY(p.y + 2), 0xffc870, 25, 0.6);
+  }
+
   /** Thin golden coin burst for gold gains. */
   coins(p: THREE.Vector3, n = 6) { this.emit(p, n, { color: 0xffd27a, speed: 2.4, up: 3, life: 0.7, size: 0.14, gravity: 7 }); }
 
@@ -217,6 +327,36 @@ function discOnGround(cx: number, cz: number, r: number, ground: Ground): THREE.
   return g;
 }
 
+let linkGeo: THREE.BufferGeometry | null = null, linkMat: THREE.Material | null = null;
+function chainLinkGeo() { return (linkGeo ??= new THREE.TorusGeometry(0.045, 0.013, 4, 10).scale(1.6, 1, 1)); }
+function chainMat() { return (linkMat ??= new THREE.MeshStandardMaterial({ color: 0x6a6c72, metalness: 1, roughness: 0.55 })); }
+
+let colTex: THREE.Texture | null = null;
+function columnTex(): THREE.Texture {
+  if (colTex) return colTex;
+  const c = document.createElement('canvas'); c.width = 8; c.height = 64;
+  const g = c.getContext('2d')!; const grd = g.createLinearGradient(0, 64, 0, 0);
+  grd.addColorStop(0, 'rgba(255,255,255,1)'); grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd; g.fillRect(0, 0, 8, 64);
+  return (colTex = new THREE.CanvasTexture(c));
+}
+
+/** Shared arrow model (+x forward). */
+export function makeArrow(scale = 1): THREE.Group {
+  const g = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.95, 4).rotateZ(Math.PI / 2), arrowMats().wood);
+  const tip = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.14, 4).rotateZ(-Math.PI / 2).translate(0.54, 0, 0), arrowMats().iron);
+  const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 0.06).translate(-0.42, 0, 0), arrowMats().fletch);
+  const fl2 = fl.clone(); fl2.rotation.x = Math.PI / 2;
+  g.add(shaft, tip, fl, fl2); g.scale.setScalar(scale);
+  return g;
+}
+let aMats: { wood: THREE.Material; iron: THREE.Material; fletch: THREE.Material } | null = null;
+function arrowMats() {
+  return (aMats ??= { wood: new THREE.MeshStandardMaterial({ color: 0x6a4a2e, roughness: 0.9 }), iron: new THREE.MeshStandardMaterial({ color: 0x9a9a9a, metalness: 1, roughness: 0.5 }),
+    fletch: new THREE.MeshStandardMaterial({ color: 0xdad6cc, roughness: 1, side: THREE.DoubleSide }) });
+}
+
 let arc: THREE.Texture | null = null;
 function arcTex(): THREE.Texture {
   if (arc) return arc;
@@ -230,19 +370,44 @@ function arcTex(): THREE.Texture {
 }
 
 // ---- Projectile visuals ------------------------------------------------------------------------
+type TrailStyle = { color: number; n: number; size: number; gravity: number; life?: number } | null;
+const TRAILS: Record<string, TrailStyle> = {
+  ice_lance: { color: 0x9fdcff, n: 3, size: 0.25, gravity: 0.5 },
+  sigrun_basic: { color: 0x9fdcff, n: 2, size: 0.25, gravity: 0.5 },
+  tower_bolt: { color: 0xff9a3a, n: 2, size: 0.35, gravity: -2 },
+  split_shot: { color: 0xe8f4ff, n: 1, size: 0.16, gravity: 0, life: 0.25 },
+  halla_basic: { color: 0xffd08a, n: 2, size: 0.22, gravity: -0.5 },
+  lantern_beam: { color: 0xffd27a, n: 4, size: 0.3, gravity: -0.6, life: 0.45 },
+  thread_of_warmth: { color: 0xffe2a8, n: 3, size: 0.18, gravity: 0, life: 0.6 },
+  hooked_reel: null, last_link: null, arrow: null, hilde_basic: null,
+};
+
 export class ProjectileView {
   readonly root = new THREE.Group();
   private emitT = 0;
+  private spin: THREE.Object3D | null = null;
   constructor(readonly fx: string, private vfx: Vfx) {
     if (fx === 'ice_lance') {
       const m = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0).scale(3.2, 0.6, 0.6), new THREE.MeshStandardMaterial({ color: 0xd8f4ff, emissive: 0x58c8ff, emissiveIntensity: 2.4, roughness: 0.1 }));
       this.root.add(m);
-    } else if (fx === 'arrow') {
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 4).rotateZ(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x5a3a24, roughness: 0.9 }));
-      const tip = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 4).rotateZ(-Math.PI / 2).translate(0.62, 0, 0), new THREE.MeshStandardMaterial({ color: 0x9a9a9a, metalness: 1, roughness: 0.5 }));
-      this.root.add(shaft, tip);
+    } else if (fx === 'arrow' || fx === 'hilde_basic' || fx === 'split_shot') {
+      const a = makeArrow(fx === 'arrow' ? 1.1 : 1); this.root.add(a);
+      if (fx === 'split_shot') a.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 4).translate(0.55, 0, 0), new THREE.MeshBasicMaterial({ color: 0xe8f4ff })));
     } else if (fx === 'tower_bolt') {
       const f = makeFire(0.45); f.position.y = -0.35; this.root.add(f);
+    } else if (fx === 'hooked_reel' || fx === 'last_link') {
+      // Spinning iron hook at the head of the chain (the chain itself is drawn by the caller).
+      const iron = new THREE.MeshStandardMaterial({ color: 0x55575c, metalness: 1, roughness: 0.5, emissive: fx === 'last_link' ? 0x401808 : 0x000000 });
+      const g = new THREE.Group();
+      g.add(new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.035, 6, 14, Math.PI * 1.3), iron));
+      g.add(new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.16, 5).rotateZ(Math.PI / 2).translate(0.16, -0.08, 0), iron));
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6).translate(-0.12, 0, 0), iron));
+      g.scale.setScalar(fx === 'last_link' ? 1.5 : 1.15);
+      this.spin = g; this.root.add(g);
+    } else if (fx === 'lantern_beam' || fx === 'thread_of_warmth' || fx === 'halla_basic') {
+      const big = fx === 'lantern_beam';
+      const core = new THREE.Mesh(new THREE.SphereGeometry(big ? 0.2 : 0.12, 10, 8).scale(fx === 'halla_basic' ? 1 : 2.4, 1, 1), new THREE.MeshBasicMaterial({ color: fx === 'thread_of_warmth' ? 0xfff0c8 : 0xffd890 }));
+      this.root.add(core);
     } else {
       const m = new THREE.Mesh(new THREE.IcosahedronGeometry(0.16, 1), new THREE.MeshBasicMaterial({ color: 0xbfeaff }));
       this.root.add(m);
@@ -251,12 +416,13 @@ export class ProjectileView {
   place(p: THREE.Vector3, facing: number, dt: number) {
     this.root.position.copy(p);
     this.root.rotation.y = facing;
+    if (this.spin) this.spin.rotation.z += dt * 18;
     this.emitT -= dt;
     if (this.emitT <= 0) {
       this.emitT = 0.016;
-      if (this.fx === 'arrow') return; // arrows don't leave a magic trail
-      const col = this.fx === 'tower_bolt' ? 0xff9a3a : 0x9fdcff;
-      this.vfx.emit(p, this.fx === 'ice_lance' ? 3 : 2, { color: col, speed: 0.5, up: 0.5, life: 0.35, size: this.fx === 'tower_bolt' ? 0.35 : 0.25, gravity: this.fx === 'tower_bolt' ? -2 : 0.5 });
+      const t = TRAILS[this.fx] === undefined ? TRAILS.sigrun_basic! : TRAILS[this.fx];
+      if (!t) return;
+      this.vfx.emit(p, t.n, { color: t.color, speed: 0.5, up: 0.5, life: t.life ?? 0.35, size: t.size, gravity: t.gravity });
     }
   }
 }

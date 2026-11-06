@@ -11,9 +11,9 @@ mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader'] });
 let failed = false;
 for (const [name, url, vp] of [
-  ['offline-desktop', `${base}/?quality=low&hero=hrodvar`, { width: 1280, height: 720 }],
-  ['online-desktop', `${base}/?quality=low&hero=sigrun&server=ws://localhost:8787`, { width: 1280, height: 720 }],
-  ['offline-phone', `${base}/?quality=low&hero=sigrun`, { width: 390, height: 844, isMobile: true, hasTouch: true }],
+  ['offline-desktop', `${base}/?quality=low&hero=brynna`, { width: 1280, height: 720 }],
+  ['online-desktop', `${base}/?quality=low&hero=halla&server=ws://localhost:8787`, { width: 1280, height: 720 }],
+  ['offline-phone', `${base}/?quality=low&hero=hilde`, { width: 390, height: 844, isMobile: true, hasTouch: true }],
 ]) {
   const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: vp.isMobile, hasTouch: vp.hasTouch, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
@@ -38,9 +38,17 @@ for (const [name, url, vp] of [
     return me ? Math.hypot(me.x - L.predictor.pos.x, me.y - L.predictor.pos.y) : -1;
   });
   // Authoritative check: server-side hero (latest snapshot) must agree with the prediction.
-  const drift = await page.evaluate(() => {
-    const L = window.__lumen, me = [...L.views.values()].find((v) => v.isLocal);
-    return me ? Math.hypot(me.root.position.x - L.predictor.pos.x, -me.root.position.z - L.predictor.pos.y) : -1;
+  // Render must converge onto the prediction (the visual correction offset decays per frame, so poll — software GL is slow).
+  const drift = await page.evaluate(async () => {
+    const L = window.__lumen;
+    let d = -1;
+    for (let i = 0; i < 30; i++) {
+      const me = [...L.views.values()].find((v) => v.isLocal);
+      d = me ? Math.hypot(me.root.position.x - L.predictor.pos.x, -me.root.position.z - L.predictor.pos.y) : -1;
+      if (d >= 0 && d < 0.5) break;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return d;
   });
   // Combat: every slot can be fired (cooldowns respected), and the 3v3 match is populated with bots.
   const fired = [];
@@ -48,25 +56,48 @@ for (const [name, url, vp] of [
   const heroes = await page.evaluate(() => [...window.__lumen.views.values()].filter((v) => v.isHero).length);
   // Tower defence: build a Watch Tower between the fort and the valley centre through the real network path.
   const built = await page.evaluate(async () => {
+    // Fan of sites 9–12.5 m from the hero toward the valley centre, clear of the fort's no-build ring.
     const L = window.__lumen, me = L.mine, fort = L.map.bases[L.me.team].pos;
-    const dx = -fort.x, dy = -fort.y, l = Math.hypot(dx, dy);
-    for (const r of [17, 19, 21, 23]) for (const side of [0, 3, -3, 6, -6]) {
-      const x = Math.round((fort.x + (dx / l) * r - (dy / l) * side) / 2) * 2, y = Math.round((fort.y + (dy / l) * r + (dx / l) * side) / 2) * 2;
-      if (Math.hypot(x - me.x, y - me.y) > 13) continue;
+    const base = Math.atan2(-me.y, -me.x);
+    for (const r of [10, 12, 9, 11.5]) for (const da of [0, 0.35, -0.35, 0.7, -0.7, 1.05, -1.05]) {
+      const x = Math.round((me.x + Math.cos(base + da) * r) / 2) * 2, y = Math.round((me.y + Math.sin(base + da) * r) / 2) * 2;
+      if (Math.hypot(x - fort.x, y - fort.y) < 16 || Math.hypot(x - me.x, y - me.y) > 13) continue;
       L.transport.send({ type: 'build', kind: 'arrow', x, y });
       await new Promise((res) => setTimeout(res, 2500));
-      if (L.bulwarkViews.size > 0 && [...L.bulwarkViews.values()].some((b) => b.team === L.me.team)) return true;
+      if ([...L.bulwarkViews.values()].some((b) => b.team === L.me.team)) return true;
     }
     return false;
   });
-  const combatOk = fired.every(Boolean) && heroes === 6 && built;
+  // Items: we spawn inside our fort, so the quartermaster must sell us a Mason's Kit through the real command path
+  // (start gold is below its price, so keep asking while passive and wave income arrive).
+  // Software-rendered offline runs advance the in-page sim very slowly, so gold may never reach the price there:
+  // then the check is that the server's refusal round-trips to the client (deny toast) instead of a purchase.
+  const purchase = await page.evaluate(async () => {
+    const L = window.__lumen;
+    let asked = false;
+    for (let i = 0; i < 120; i++) {
+      if ((L.mine?.it ?? []).includes('kit')) return 'bought';
+      if ((L.mine?.g ?? 0) >= 170 && i % 4 === 0) L.transport.send({ type: 'buy', item: 'kit' });
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    L.transport.send({ type: 'buy', item: 'plate' }); asked = true;
+    for (let i = 0; i < 30; i++) { // toasts fade after ~3 s: poll for the refusal
+      if ([...document.querySelectorAll('.toast.bad')].some((t) => /gold|fort/.test(t.textContent))) return 'refused by server';
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    return 'failed';
+  });
+  const bought = purchase !== 'failed';
+
+  const combatOk = fired.every(Boolean) && heroes === 6 && built && bought;
   if (!built) errors.push('build failed');
+  if (!bought) errors.push('item purchase failed');
   if (!combatOk) errors.push(`combat: fired=${fired} heroes=${heroes}`);
   await page.screenshot({ path: `${out}/${name}.png`, timeout: 180000 });
   const moved = Math.hypot(p1.x - p0.x, p1.y - p0.y);
   const ok = moved > 4 && errors.length === 0 && drift >= 0 && drift < 0.5 && serverGap >= 0 && serverGap < 1.5;
   failed ||= !ok;
-  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: moved ${moved.toFixed(1)} m, render/predict drift ${drift.toFixed(2)}, server/predict gap ${serverGap.toFixed(2)}, errors=${errors.length}${errors.length ? ' ' + errors.slice(0, 3).join(' | ').slice(0, 600) : ''}`);
+  console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: item ${purchase}, moved ${moved.toFixed(1)} m, render/predict drift ${drift.toFixed(2)}, server/predict gap ${serverGap.toFixed(2)}, errors=${errors.length}${errors.length ? ' ' + errors.slice(0, 3).join(' | ').slice(0, 600) : ''}`);
   await ctx.close();
 }
 await browser.close();

@@ -27,7 +27,7 @@ function part(geo: THREE.BufferGeometry, mat: THREE.Material, y = 0): Part { con
 
 export interface CharacterOpts { team: 0 | 1; role: 'hero' | 'minion'; heroId?: string; scale?: number }
 
-export type ActionAnim = 'attack' | 'shoot' | 'cast' | 'slam';
+export type ActionAnim = 'attack' | 'shoot' | 'cast' | 'slam' | 'bow' | 'throw' | 'spin' | 'repair';
 
 export class Character {
   readonly root = new THREE.Group();
@@ -45,6 +45,11 @@ export class Character {
   private stunned = false;
   private deadT = -1; // >= 0 while dead (seconds since death)
   private crystal: THREE.Mesh | null = null;
+  private flame: THREE.Mesh | null = null; private flameGlow: THREE.Sprite | null = null;
+  private bowString: { top: THREE.Mesh; bot: THREE.Mesh; tipY: number; nock: THREE.Vector3 } | null = null;
+  private draw = 0;
+  private spinYaw = 0;
+  readonly heroId?: string;
 
   constructor(readonly opts: CharacterOpts) {
     const { team, role } = opts;
@@ -54,7 +59,11 @@ export class Character {
     this.root.rotation.order = 'YXZ'; // death topple is relative to facing
     this.hips.position.y = 0.98;
 
-    const mage = opts.heroId === 'sigrun';
+    this.heroId = opts.heroId;
+    const id = role === 'hero' ? opts.heroId ?? 'hrodvar' : undefined;
+    const mage = id === 'sigrun' || id === 'halla';            // long robe casters
+    const hooded = id === 'sigrun' || id === 'halla' || id === 'hilde';
+    const plated = id === 'hrodvar' || id === 'brynna';
     // Pelvis: mail skirt (warriors) or long wool robe (casters) + belt.
     if (mage) this.hips.add(part(new THREE.CylinderGeometry(0.2, 0.36, 0.95, 14, 1, true).translate(0, -0.42, 0), cloth));
     else this.hips.add(part(new THREE.CylinderGeometry(0.2, 0.27, 0.36, 12, 1, true).translate(0, -0.14, 0), dark));
@@ -64,7 +73,7 @@ export class Character {
     this.hips.add(this.spine);
     this.spine.position.y = 0.05;
     const chest = new THREE.LatheGeometry([[0.17, 0], [0.2, 0.14], [0.235, 0.32], [0.225, 0.46], [0.13, 0.55]].map(([x, y]) => new THREE.Vector2(x!, y!)), 14);
-    const chestMesh = part(chest, role === 'hero' && !mage ? steel : leather);
+    const chestMesh = part(chest, plated ? steel : leather);
     chestMesh.scale.set(1, 1, 0.78);
     this.spine.add(chestMesh);
     // Tabard front/back in clan colours.
@@ -79,18 +88,29 @@ export class Character {
     // Head + helm.
     this.spine.add(this.head);
     this.head.position.y = 0.62;
-    if (mage) {
-      // Fur hood with a shadowed face opening — the caster silhouette.
-      this.head.add(part(new THREE.SphereGeometry(0.15, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1, 1.25, 1.1).translate(0, 0.08, -0.01), Mats.fur()));
-      this.head.add(part(new THREE.ConeGeometry(0.13, 0.22, 12, 1, true).rotateX(Math.PI).translate(0, 0.0, 0), Mats.fur()));
+    if (hooded) {
+      // Hood with a shadowed face opening — fur for Sigrun, wool for Halla, a pointed ranger's cowl for Hilde.
+      const hoodMat = id === 'sigrun' ? Mats.fur() : cloth;
+      this.head.add(part(new THREE.SphereGeometry(0.15, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.62).scale(1, 1.25, 1.1).translate(0, 0.08, -0.01), hoodMat));
+      this.head.add(part(new THREE.ConeGeometry(0.13, 0.22, 12, 1, true).rotateX(Math.PI).translate(0, 0.0, 0), hoodMat));
+      if (id === 'hilde') this.head.add(part(new THREE.ConeGeometry(0.07, 0.2, 8).rotateX(-0.9).translate(0, 0.2, -0.13), hoodMat)); // cowl point
       this.head.add(part(new THREE.SphereGeometry(0.1, 12, 8).scale(1, 1.1, 0.6).translate(0, 0.08, 0.07), shadowMat()));
+    } else if (id === 'brynna') {
+      // Open-faced spangenhelm and two heavy braids down the back.
+      this.head.add(part(new THREE.SphereGeometry(0.128, 16, 10, 0, Math.PI * 2, 0, Math.PI * 0.5).scale(1, 1.25, 1.05).translate(0, 0.1, 0), steel));
+      this.head.add(part(new THREE.TorusGeometry(0.128, 0.014, 6, 18).rotateX(Math.PI / 2).translate(0, 0.1, 0), dark));
+      this.head.add(part(new THREE.SphereGeometry(0.1, 12, 8).scale(0.9, 1.1, 0.8).translate(0, 0.05, 0.03), Mats.skin()));
+      for (const sx of [-1, 1]) {
+        const braid = part(new THREE.CylinderGeometry(0.028, 0.018, 0.42, 6).translate(0, -0.21, 0), Mats.hair());
+        braid.position.set(sx * 0.07, 0.06, -0.09); braid.rotation.x = 0.22; this.head.add(braid);
+      }
     } else {
       const helm = part(new THREE.SphereGeometry(0.125, 16, 12).scale(1, 1.18, 1.05).translate(0, 0.1, 0), steel);
       this.head.add(helm);
       this.head.add(part(new THREE.BoxGeometry(0.17, 0.025, 0.04).translate(0, 0.1, 0.12), shadowMat()));
       this.head.add(part(new THREE.BoxGeometry(0.03, 0.12, 0.03).translate(0, 0.05, 0.135), steel)); // nasal guard
     }
-    if (role === 'hero' && !mage) this.addAntlers(dark);
+    if (id === 'hrodvar') this.addAntlers(dark);
     else if (role !== 'hero') this.head.add(part(new THREE.TorusGeometry(0.15, 0.02, 6, 16).rotateX(Math.PI / 2).translate(0, 0.12, 0), dark)); // kettle-helm brim
 
     // Arms (shoulder pivots on the spine).
@@ -101,7 +121,10 @@ export class Character {
     this.legR = this.limb(1, steel, leather, false);
 
     // Equipment.
-    if (mage) {
+    if (id === 'hilde') this.equipBow();
+    else if (id === 'brynna') this.equipChain(dark);
+    else if (id === 'halla') this.equipLantern();
+    else if (mage) {
       // Rune staff topped with a glowing ice crystal (signature shape, Art Bible §7).
       const staff = new THREE.Group();
       staff.add(new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 1.75, 7).translate(0, 0.35, 0), Mats.timber()));
@@ -192,6 +215,91 @@ export class Character {
     return { root, lower, end };
   }
 
+  /** Hilde: a recurve longbow taller than she is (left hand), a quiver of grey-fletched arrows on the back. */
+  private equipBow() {
+    const bow = new THREE.Group();
+    const L = 0.92; // half-length
+    const curve = new THREE.CatmullRomCurve3([[-L, 0.1], [-0.72, -0.02], [-0.4, 0.07], [0, 0.04], [0.4, 0.07], [0.72, -0.02], [L, 0.1]].map(([z, y]) => new THREE.Vector3(0, y!, z!)));
+    const limb = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.017, 6), Mats.timber());
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.16, 8).rotateX(Math.PI / 2).translate(0, 0.04, 0), Mats.leather());
+    const strMat = new THREE.MeshBasicMaterial({ color: 0xd9d2bf });
+    const sgeo = new THREE.CylinderGeometry(0.004, 0.004, 1, 3).translate(0, 0.5, 0);
+    const top = new THREE.Mesh(sgeo, strMat), bot = new THREE.Mesh(sgeo, strMat);
+    bow.add(limb, grip, top, bot);
+    bow.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    bow.position.set(0, -0.04, 0.0);
+    this.armL.end.add(bow);
+    this.bowString = { top, bot, tipY: L, nock: new THREE.Vector3(0, 0.1, 0) };
+    this.updateBowString();
+    // Quiver (baked onto the spine).
+    const q = part(new THREE.CylinderGeometry(0.06, 0.05, 0.55, 10).translate(0, 0, 0), Mats.leather());
+    q.position.set(0.1, 0.3, -0.2); q.rotation.z = -0.35; q.rotation.x = 0.15; this.spine.add(q);
+    for (let i = 0; i < 4; i++) {
+      const f = part(new THREE.ConeGeometry(0.018, 0.12, 4).translate(0, 0.33, 0), Mats.fletch());
+      f.position.set(0.1 + (i % 2) * 0.03 - 0.015, 0.3, -0.2 + (i < 2 ? 0.02 : -0.02)); f.rotation.z = -0.35; f.rotation.x = 0.15; this.spine.add(f);
+    }
+  }
+
+  private updateBowString() {
+    const b = this.bowString; if (!b) return;
+    const nock = new THREE.Vector3(0, 0.1 - this.draw * 0.55, 0); // pulled toward the archer (bow-local -y)
+    for (const [m, tipZ] of [[b.top, b.tipY], [b.bot, -b.tipY]] as const) {
+      const tip = new THREE.Vector3(0, 0.1, tipZ);
+      const d = tip.clone().sub(nock);
+      m.position.copy(nock); m.scale.set(1, d.length(), 1);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+    }
+  }
+
+  /** Brynna: chain coiled round the left forearm, weighted iron hook in the right hand on a short drop of chain. */
+  private equipChain(dark: THREE.Material) {
+    const iron = Mats.darkSteel();
+    for (let i = 0; i < 6; i++) this.armL.lower.add(part(new THREE.TorusGeometry(0.068, 0.012, 5, 14).rotateX(Math.PI / 2 + 0.25).translate(0, -0.05 - i * 0.032, 0), dark));
+    const hook = new THREE.Group();
+    for (let i = 0; i < 7; i++) {
+      const link = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.009, 4, 10), iron);
+      link.position.set(0, -0.03 - i * 0.045, 0); link.rotation.y = (i % 2) * Math.PI / 2;
+      hook.add(link);
+    }
+    const shank = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.022, 0.2, 6).translate(0, -0.42, 0), iron);
+    const bend = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.018, 6, 14, Math.PI * 1.25).rotateZ(Math.PI * 0.85).translate(0.05, -0.53, 0), iron);
+    const barb = new THREE.Mesh(new THREE.ConeGeometry(0.022, 0.08, 5).rotateZ(-0.4).translate(0.12, -0.47, 0), iron);
+    const weight = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6).translate(0, -0.33, 0), iron);
+    hook.add(shank, bend, barb, weight);
+    hook.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
+    this.armR.end.add(hook);
+  }
+
+  /** Halla: lantern staff — a glass-caged flame at the crown, flickering (emissive + glow sprite, no real light). */
+  private equipLantern() {
+    const staff = new THREE.Group();
+    staff.add(new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, 1.8, 7).translate(0, 0.35, 0), Mats.timber()));
+    const brass = Mats.brass();
+    staff.add(new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.012, 5, 12).rotateX(Math.PI / 2).translate(0, 1.24, 0), brass));
+    staff.add(new THREE.Mesh(new THREE.ConeGeometry(0.085, 0.09, 8).translate(0, 1.46, 0), brass));
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      staff.add(new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.2, 4).translate(Math.cos(a) * 0.066, 1.34, Math.sin(a) * 0.066), brass));
+    }
+    staff.add(new THREE.Mesh(new THREE.CylinderGeometry(0.062, 0.062, 0.19, 10, 1, true).translate(0, 1.34, 0),
+      new THREE.MeshPhysicalMaterial({ color: 0xfff2d8, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, depthWrite: false })));
+    this.flame = new THREE.Mesh(new THREE.SphereGeometry(0.04, 10, 8).scale(0.8, 1.5, 0.8).translate(0, 1.33, 0),
+      new THREE.MeshStandardMaterial({ color: 0xffd28a, emissive: 0xffa040, emissiveIntensity: 4, roughness: 1 }));
+    staff.add(this.flame);
+    this.flameGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex(), color: 0xffb35a, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.flameGlow.position.set(0, 1.33, 0); this.flameGlow.scale.setScalar(0.55);
+    staff.add(this.flameGlow);
+    staff.traverse((o) => { if ((o as THREE.Mesh).isMesh && o !== this.flame) o.castShadow = true; });
+    // Carried upright like a shepherd's crook: grip a third of the way up, lantern above the head.
+    staff.rotation.set(0.42, 0, 0); staff.position.set(0, -0.35, 0.1);
+    this.armR.end.add(staff);
+  }
+
+  /** World position of a hand (chain, beam and bow origins). */
+  handWorld(side: 'L' | 'R', out = new THREE.Vector3()): THREE.Vector3 {
+    return (side === 'L' ? this.armL.end : this.armR.end).getWorldPosition(out);
+  }
+
   /** Hero silhouette signature: antlered helm (Art Bible §7 — readable at 30 m). */
   private addAntlers(mat: THREE.Material) {
     for (const side of [-1, 1]) {
@@ -261,6 +369,12 @@ transformed.y += k * k * uS * 0.25;`);
     this.head.rotation.x = -0.1 * k;
     this.capeTime.value += dt; this.capeSpeed.value = k;
     if (this.crystal) this.crystal.rotation.y += dt * 1.5;
+    if (this.flame) {
+      const fl = 0.85 + Math.sin(this.breathe * 9.3) * 0.08 + Math.sin(this.breathe * 23.7) * 0.06 + Math.random() * 0.05;
+      this.flame.scale.set(1, fl, 1); (this.flame.material as THREE.MeshStandardMaterial).emissiveIntensity = 3.2 + fl * 1.6;
+      this.flameGlow!.scale.setScalar(0.5 + fl * 0.12);
+    }
+    if (this.bowString) { this.armL.root.rotation.x = -0.35 - s * 0.1 * k; this.armL.lower.rotation.x = -0.5; } // bow carried low and forward
 
     // Hit flinch.
     if (this.flinch > 0) { this.spine.rotation.x -= this.flinch * 0.28; this.head.rotation.x -= this.flinch * 0.2; this.flinch = Math.max(0, this.flinch - dt * 6); }
@@ -292,9 +406,37 @@ transformed.y += k * k * uS * 0.25;`);
         const up = p < 0.5 ? ease(p / 0.5) : 1 - ease((p - 0.5) / 0.5);
         this.armR.root.rotation.x = -2.9 * up; this.armL.root.rotation.x = -2.9 * up;
         this.spine.rotation.x = -0.25 * up + (p > 0.5 ? 0.3 * (1 - p) : 0);
+      } else if (a.kind === 'bow') {
+        // Raise the bow, draw to the cheek, loose (string snaps forward), recover.
+        const raise = p < 0.25 ? ease(p / 0.25) : p < 0.75 ? 1 : 1 - ease((p - 0.75) / 0.25);
+        this.draw = p < 0.2 ? 0 : p < 0.5 ? ease((p - 0.2) / 0.3) : p < 0.56 ? 1 - (p - 0.5) / 0.06 : 0;
+        this.armL.root.rotation.x = -1.55 * raise; this.armL.lower.rotation.x = -0.05 * raise; this.armL.root.rotation.z = -0.1 * raise;
+        this.armR.root.rotation.x = -1.5 * raise; this.armR.lower.rotation.x = -1.9 * this.draw * raise; this.armR.root.rotation.z = 0.35 * this.draw;
+        this.spine.rotation.y = 0.55 * raise; this.head.rotation.y = -0.5 * raise;
+      } else if (a.kind === 'throw') {
+        // Overhand cast of the hook: wind back, whip forward and follow through.
+        const back = p < 0.35 ? ease(p / 0.35) : 0, fwd = p < 0.35 ? 0 : p < 0.55 ? ease((p - 0.35) / 0.2) : 1 - ease((p - 0.55) / 0.45);
+        this.armR.root.rotation.x = -2.8 * back + (-1.4) * fwd; this.armR.lower.rotation.x = -1.2 * back - 0.1 * fwd;
+        this.spine.rotation.y = 0.5 * back - 0.45 * fwd; this.spine.rotation.x += 0.2 * fwd;
+        this.armL.root.rotation.x = -0.6 * fwd;
+      } else if (a.kind === 'spin') {
+        // Chain Whirl: a full turn of the upper body with the arm thrown out.
+        const turn = ease(p);
+        this.spinYaw = turn * Math.PI * 2;
+        this.armR.root.rotation.z = 1.45 * Math.sin(Math.PI * p); this.armR.root.rotation.x = -0.4;
+        this.armL.root.rotation.z = -0.9 * Math.sin(Math.PI * p);
+        this.legL.root.rotation.x = 0.3 * Math.sin(Math.PI * p); this.legR.root.rotation.x = -0.3 * Math.sin(Math.PI * p);
+      } else if (a.kind === 'repair') {
+        // Hammer blows: short repeating overhand taps.
+        const tap = Math.abs(Math.sin(p * Math.PI * 2));
+        this.armR.root.rotation.x = -1.9 + tap * 1.1; this.armR.lower.rotation.x = -0.9 + tap * 0.4;
+        this.spine.rotation.x = 0.35; this.head.rotation.x = 0.3;
       }
-      if (p >= 1) this.act = null;
+      if (a.kind !== 'bow') this.draw = Math.max(0, this.draw - dt * 6);
+      if (p >= 1) { this.act = null; this.spinYaw = 0; }
     }
+    this.hips.rotation.y += this.spinYaw;
+    this.updateBowString();
   }
 
   private updateDeath(dt: number) {
@@ -309,6 +451,16 @@ transformed.y += k * k * uS * 0.25;`);
 
   setFirstPerson(fp: boolean) { this.root.visible = !fp; }
   setVisible(v: boolean) { this.root.visible = v; }
+}
+
+let glow: THREE.Texture | null = null;
+function glowTex(): THREE.Texture {
+  if (glow) return glow;
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const g = c.getContext('2d')!; const r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, 'rgba(255,255,255,1)'); r.addColorStop(0.25, 'rgba(255,255,255,0.5)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return (glow = new THREE.CanvasTexture(c));
 }
 
 let shadow: THREE.MeshStandardMaterial | null = null;

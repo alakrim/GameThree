@@ -12,18 +12,28 @@ export type Command =
   | { type: 'upgrade'; id: number }
   | { type: 'sell'; id: number }
   | { type: 'send'; unit: string; lane: string }
+  /** Channel repairs on a friendly bulwark (id 0 = stop). */
+  | { type: 'repair'; id: number }
+  /** Items: buy at your own fort (or while dead); sell an owned slot. */
+  | { type: 'buy'; item: string }
+  /** Hearth Recall: channel, then return to your fort (cancelled by moving, acting or taking damage). */
+  | { type: 'recall' }
+  | { type: 'sellItem'; slot: number }
   | { type: 'move'; x: number; y: number }
   | { type: 'stop' };
 
 /** Compact entity record. Short keys keep JSON small until the binary codec lands. */
 export interface EntitySnapshot {
   id: number;
-  k: 0 | 1 | 2 | 3 | 4 | 5; // hero, minion, tower, projectile, heart, bulwark
+  k: 0 | 1 | 2 | 3 | 4 | 5 | 6; // hero, minion, tower, projectile, heart, bulwark, trap
   t: 0 | 1; // team
   x: number; y: number; f: number;
   hp: number; mh: number;
   m: 0 | 1; // moving
-  st?: number; // status bits: 1 stunned, 2 slowed, 4 dead, 8 hasted, 16 invulnerable, 32 dashing
+  /** Status bits: 1 stunned, 2 slowed, 4 dead, 8 hasted, 16 invulnerable, 32 dashing, 64 rooted, 128 shielded,
+   *  256 healing over time, 512 displaced (pulled/pushed), 1024 repairing, 2048 CC-immune (diminishing returns), 4096 trap armed,
+   *  8192 recalling. */
+  st?: number;
   o?: string; // owner player id
   h?: string; // hero id
   sq?: number; // last input seq processed — prediction ack
@@ -36,6 +46,11 @@ export interface EntitySnapshot {
   g?: number; inc?: number; // hero gold, income per wave
   u?: string; // wave unit type when not a plain minion (wolf, brute, troll)
   b?: number; // bulwark type index (BULWARK_TYPES)
+  sh?: number; // shield HP
+  it?: string[]; // hero items
+  rp?: number; // id of the structure being repaired
+  rc?: number; // recall progress 0..1
+  kd?: [number, number]; // hero kills, deaths
 }
 
 /** Discrete things that happened since the last snapshot (drive VFX, SFX, animation, damage numbers). */
@@ -56,9 +71,18 @@ export type GameEvent =
   | { e: 'send'; s: number; u: string; l: string }
   | { e: 'gold'; s: number; n: number; d: number }                           // bounty to hero s for killing d
   | { e: 'lob'; s: number; x: number; y: number; d: number }                 // catapult shot landing in d s
+  | { e: 'heal'; s: number; d: number; n: number }                          // s healed d for n
+  | { e: 'shield'; s: number; d: number; n: number }                        // s shielded d for n
+  | { e: 'hook'; s: number; d: number; r?: 1 }                              // s's chain caught d (r: reel from a basic)
+  | { e: 'snare'; s: number; d: number }                                    // trap s sprung on d
+  | { e: 'push'; s: number; x: number; y: number; r: number }               // outward shove from s
+  | { e: 'imm'; d: number }
+  | { e: 'recall'; s: number; done?: 1 }                                    // recall started / completed                                                 // d shrugged off CC (diminishing returns)
+  | { e: 'buy'; s: number; i: string; sold?: 1 }
+  | { e: 'kill'; s: number; d: number; a: number[] }                        // hero kill (s killer hero id or 0), assists
   | { e: 'reset' };
 
-export interface Snapshot { tick: number; ents: EntitySnapshot[]; ev?: GameEvent[]; win?: 0 | 1; wv?: number; nw?: number }
+export interface Snapshot { tick: number; ents: EntitySnapshot[]; ev?: GameEvent[]; win?: 0 | 1; wv?: number; nw?: number; mt?: number /* match seconds */ }
 
 export type ClientMsg =
   | { op: 'hello'; v: number; name: string; hero?: string }
@@ -84,13 +108,16 @@ export function decodeClient(raw: string): ClientMsg | null {
       case 'ping': return finite(m.t) ? m : null;
       case 'cmd': {
         const c = m.cmd;
-        if (c?.type === 'stop') return m;
+        if (c?.type === 'stop' || c?.type === 'recall') return m;
         if (c?.type === 'input' && Number.isInteger(c.seq) && finite(c.mx) && finite(c.my)) return m;
         if (c?.type === 'act' && Number.isInteger(c.slot) && finite(c.aim) && optFinite(c.tx) && optFinite(c.ty)) return m;
         if (c?.type === 'move' && finite(c.x) && finite(c.y)) return m;
         if (c?.type === 'build' && typeof c.kind === 'string' && finite(c.x) && finite(c.y)) return m;
         if ((c?.type === 'upgrade' || c?.type === 'sell') && Number.isInteger(c.id)) return m;
         if (c?.type === 'send' && typeof c.unit === 'string' && typeof c.lane === 'string') return m;
+        if (c?.type === 'repair' && Number.isInteger(c.id)) return m;
+        if (c?.type === 'buy' && typeof c.item === 'string') return m;
+        if (c?.type === 'sellItem' && Number.isInteger(c.slot)) return m;
         return null;
       }
       default: return null;

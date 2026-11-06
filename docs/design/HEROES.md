@@ -1,6 +1,6 @@
 # Project Lumen: Hero Roster and Kit Design
 
-**Status:** Draft 1. Owner: Lead Gameplay/Character Designer.
+**Status:** Draft 2 — launch slice implemented (M1c), see §7. Owner: Lead Gameplay/Character Designer.
 **Reads with:** `docs/art/ART_BIBLE.md` (silhouettes, budgets, VFX), `docs/design/TWIST_CONCEPTS.md` (core twist, still pending).
 
 Kit numbers here are design targets for prototyping, not final tuning. Where a hook depends on the pending twist, the hook is written so any of the four candidates can adopt it.
@@ -38,19 +38,19 @@ Fifteen heroes: 3 Vanguard, 3 Warden, 2 Skirmisher, 3 Marksman, 2 Runecaster, 2 
 | # | Hero | Role | Silhouette signature (seen from behind) | Weapon | Difficulty | Status |
 |---|---|---|---|---|---|---|
 | 1 | Gorrik, Doorbreaker | Vanguard | Door-sized banded oak shield carried high | Oak tower shield, iron maul | 1 | Proposed |
-| 2 | Brynna Chainhook | Vanguard | Iron chain trailing from wrist to weighted hook | Chain-hook | 2 | Proposed |
+| 2 | Brynna Chainhook | Vanguard | Iron chain trailing from wrist to weighted hook | Chain-hook | 2 | Implemented (M1c) |
 | 3 | Kettil Hidebound | Vanguard | Ox-hide mantle beside a bronze-ringed spear planted upright | Bronze-ringed spear | 1 | Proposed |
-| 4 | Hrodvar, the Antlered Warden | Warden | Antlered helm | Sword and kite shield | 1 | Defined |
+| 4 | Hrodvar, the Antlered Warden | Warden | Antlered helm | Sword and kite shield | 1 | Implemented |
 | 5 | Ragna Bonesplitter | Warden | Bone-hafted greataxe over one shoulder, grave-cloth ribbon | Greataxe | 2 | Proposed |
 | 6 | Ivar Splitwood | Warden | Long ash spear with a bound pine sprig at the head | Ash spear | 2 | Proposed |
 | 7 | Sanna Hollowstep | Skirmisher | Split cloak with three trailing ribbons, two knives crossed on the back | Twin curved knives | 3 | Proposed |
 | 8 | Mattis Ashcloak | Skirmisher | Wolf-skull hood, hooked sickle hanging past the knee | Hooked sickle | 2 | Proposed |
-| 9 | Hilde Longwatch | Marksman | Recurve longbow taller than she is | Longbow | 1 | Proposed |
+| 9 | Hilde Longwatch | Marksman | Recurve longbow taller than she is | Longbow | 1 | Implemented (M1c) |
 | 10 | Yrsa Quill-Brace | Marksman | Crossbow with a bone drum magazine above the stock | Repeating crossbow | 2 | Proposed |
 | 11 | Fenna Stonesling | Marksman | Sling cord trailing behind like a tail | Sling | 2 | Proposed |
-| 12 | Sigrun Frostcaller | Runecaster | Fur hood, rune staff topped by an ice crystal | Rune staff | 2 | Defined |
+| 12 | Sigrun Frostcaller | Runecaster | Fur hood, rune staff topped by an ice crystal | Rune staff | 2 | Implemented |
 | 13 | Ashild Emberscript | Runecaster | Tall staff with a brass brazier cup and a plume of flame; rune-chained book at the hip | Brazier staff | 2 | Proposed |
-| 14 | Halla Lanternkeep | Mystic | Lantern staff with a glass-caged flame at its crown | Lantern staff | 2 | Proposed |
+| 14 | Halla Lanternkeep | Mystic | Lantern staff with a glass-caged flame at its crown | Lantern staff | 2 | Implemented (M1c) |
 | 15 | Aud Censer-Keeper | Mystic | Bronze censer swinging on a cord, leaving a smoke ribbon | Censer | 3 | Proposed |
 
 **Difficulty scale.** 1: one ability needs aim, nothing else. 2: a combo or a conditional. 3: needs timing, positioning or pre-planned sequences.
@@ -309,3 +309,31 @@ Measured at level 6, with no items, against an unarmored target.
 ### 6.6 Difficulty and balance review
 - Difficulty is reviewed after playtest, not fixed by the designer. A difficulty-3 hero whose kit gets 20% higher pick rates than the cohort goes back to review.
 - Silhouette readability is checked at 30 m in grayscale (ART_BIBLE 15). Any hero that fails is changed before the kit is balanced.
+
+---
+
+## 7. Implementation (M1c)
+
+The five launch-slice heroes are playable, bot-supported and tuned against headless telemetry
+(`npm run balance`, report in `docs/balance/REPORT.md`). Numbers live in `packages/shared/src/heroes.ts`; where they
+differ from §4 the reason is given here. Shipped numbers are level-1 base values (+per level).
+
+| Hero | Shipped deviations from §4 | Why |
+|---|---|---|
+| Hrodvar | Cooldowns Q 9 s, E 7 s, R 45 s (§4.1 proposal confirmed except E 8 → 7) | E is his only non-dash damage tool between swings |
+| Sigrun | Ice Lance 7.5 s (spec proposal 8), Glacial Burst 45 s | Batch 2: 58% win rate and the best K/D at Q 6 s / R 40 s |
+| Hilde | Basic 17 m (spec 18); Split Shot 90 (+15) dmg, 8 s (spec 7); Winter Rain 7 m radius (spec 9), 1.6 s lead (spec 2.5), 40 (+6) per volley | Highest win rate in batches 2–3 (58–61%). A 9 m, nine-volley zone was inescapable for melee heroes; the shorter lead keeps it a reaction test without the telegraph overstaying |
+| Brynna | Basic reach 5.5 m (spec 6), reel 0.8 m (spec 0.5) every third landed jab; Last Link pulls the target **all the way to her** (up to 13 m) and stuns on arrival | "Grapples to her" read better than a fixed 6 m drag; the stun is applied on arrival (not on hit), so a palisade or wall that stops the pull still stuns where the target lands |
+| Halla | HP 610 (+58); basic 38; Lantern Beam heals 165 (+24), burns 60 (+9), 8 s; Thread shield 90 (+14) + 12% max HP (spec 10%); Dawnfire 45 s (spec 50) | 33% → 43% win rate across tuning passes; bots now pair her with the team's ranged carry so her kit has a target |
+
+Rules adopted from TWIST_BULWARKS §9 and §6.4:
+
+- Hooks (`heroOnly`) pass through minions and are stopped by enemy palisades. Ally threads pass through enemies.
+- Hard CC on heroes has diminishing returns: 100%, 50%, then 3 s immunity within 6 s ("Immune" floats over the target).
+- Bosses (Rimetrolls) take half-duration stuns and cannot be displaced.
+- Area damage against structures is 50%.
+
+Readability: Hilde carries a recurve longbow taller than her (its string draws back on the shot) and a pointed cowl;
+Brynna an open spangenhelm, chain coiled on the forearm and a weighted hook; Halla a wool hood and an upright lantern
+staff with a flickering caged flame. The chain is drawn as real links from Brynna's hand to the hook, then to the
+victim during the reel.

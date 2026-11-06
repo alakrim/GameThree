@@ -15,8 +15,10 @@ export class Input {
 
   /** Attack (slot 0) / abilities (1-3) press & release. */
   onAct?: (slot: number, phase: 'down' | 'up') => void;
-  /** Other gameplay keys (B build, G war table, U upgrade, X sell, Digit1-5 build slot, Escape). */
+  /** Other gameplay keys (B build, G war table, U upgrade, X sell, F repair, P shop, H recall, Tab scores, Digit1-5, Escape). */
   onKey?: (code: string) => void;
+  /** Key releases for hold-to-show keys (Tab). */
+  onKeyUp?: (code: string) => void;
   /** Right mouse (cancel build placement). */
   onCancel?: () => void;
   /** When true (build mode), the left mouse places instead of attacking. */
@@ -45,10 +47,14 @@ export class Input {
       this.keys.add(e.code);
       if (e.code === 'KeyV') cam.toggleView();
       if (slotKeys[e.code] !== undefined) this.onAct?.(slotKeys[e.code]!, 'down');
-      else if (/^(Digit[1-5]|KeyB|KeyG|KeyU|KeyX|Escape)$/.test(e.code)) this.onKey?.(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      else if (/^(Digit[1-5]|KeyB|KeyG|KeyU|KeyX|KeyF|KeyP|KeyH|Tab|Escape)$/.test(e.code)) this.onKey?.(e.code);
+      if (['Space', 'ArrowUp', 'ArrowDown', 'Tab'].includes(e.code)) e.preventDefault();
     });
-    addEventListener('keyup', (e) => { this.keys.delete(e.code); if (slotKeys[e.code] !== undefined) this.onAct?.(slotKeys[e.code]!, 'up'); });
+    addEventListener('keyup', (e) => {
+      this.keys.delete(e.code);
+      if (slotKeys[e.code] !== undefined) this.onAct?.(slotKeys[e.code]!, 'up');
+      if (e.code === 'Tab') { e.preventDefault(); this.onKeyUp?.(e.code); }
+    });
     addEventListener('blur', () => this.keys.clear());
     el.addEventListener('contextmenu', (e) => e.preventDefault());
 

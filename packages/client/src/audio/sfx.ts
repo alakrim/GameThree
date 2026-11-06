@@ -22,7 +22,19 @@ export type SfxName =
   | 'footstep'
   | 'uiClick'
   | 'victory'
-  | 'defeat';
+  | 'defeat'
+  | 'bowShot'
+  | 'arrowRain'
+  | 'chainThrow'
+  | 'chainCatch'
+  | 'whirl'
+  | 'heal'
+  | 'ward'
+  | 'snare'
+  | 'hammer'
+  | 'coin'
+  | 'recall'
+  | 'kill';
 
 export interface Vec3Like {
   x: number;
@@ -252,6 +264,140 @@ function crack(b: Build, at: number, peak: number): void {
 }
 
 const SOUNDS: Record<SfxName, SoundDef> = {
+  bowShot: {
+    level: 0.45,
+    build: (b) => {
+      // String twang (plucked low partials) + feathered whoosh.
+      link(tone(b, 'triangle', 190, 0, 0.18, 120), env(b, 0.5, 0.002, 0, 0.16), b.out);
+      link(tone(b, 'sine', 380, 0, 0.1, 260), env(b, 0.2, 0.002, 0, 0.09), b.out);
+      link(noise(b, 'white', 0.2, 0.01), sweep(b, 'bandpass', 3200, 900, 0.18, 1.4, 0.01), env(b, 0.5, 0.01, 0, 0.17, 0.01), b.out);
+    },
+  },
+
+  arrowRain: {
+    level: 0.35,
+    build: (b) => {
+      // A ragged volley: several short whistles falling in pitch, then thuds.
+      for (let i = 0; i < 6; i++) {
+        const at = b.rnd() * 0.25, f = 2400 + b.rnd() * 1400;
+        link(tone(b, 'sine', f, at, 0.22, f * 0.55), env(b, 0.09, 0.02, 0, 0.2, at), b.out);
+        link(noise(b, 'brown', 0.06, at + 0.22), biquad(b, 'lowpass', 500, 0.8), env(b, 0.5, 0.003, 0, 0.05, at + 0.22), b.out);
+      }
+    },
+  },
+
+  chainThrow: {
+    level: 0.45,
+    build: (b) => {
+      // Rattling links: a burst of tiny metallic ticks, plus the swing.
+      for (let i = 0; i < 9; i++) {
+        const at = i * 0.025 + b.rnd() * 0.01, f = 2600 + b.rnd() * 1800;
+        link(tone(b, 'square', f, at, 0.03), biquad(b, 'bandpass', f, 6), env(b, 0.12, 0.001, 0, 0.025, at), b.out);
+      }
+      link(noise(b, 'white', 0.3), sweep(b, 'bandpass', 500, 2200, 0.28, 1.1), env(b, 0.5, 0.05, 0, 0.24), b.out);
+    },
+  },
+
+  chainCatch: {
+    level: 0.6,
+    build: (b) => {
+      thump(b, 0, 0.8, 0.2);
+      crack(b, 0, 0.5);
+      // Taut chain: bright inharmonic clang that slides down as it reels.
+      link(tone(b, 'sawtooth', 620, 0, 0.45, 300), biquad(b, 'bandpass', 1400, 3), env(b, 0.25, 0.003, 0, 0.42), b.out);
+      for (let i = 0; i < 6; i++) { const at = 0.05 + i * 0.05; link(tone(b, 'square', 3000 + b.rnd() * 900, at, 0.02), env(b, 0.06, 0.001, 0, 0.02, at), b.out); }
+    },
+  },
+
+  whirl: {
+    level: 0.5,
+    build: (b) => {
+      const dur = 0.55;
+      const n = noise(b, 'white', dur);
+      const bp = biquad(b, 'bandpass', 900, 2);
+      const mod = lfo(b, 9, dur), depth = gain(b, 700);
+      mod.connect(depth); depth.connect(bp.frequency);
+      link(n, bp, env(b, 0.7, 0.06, 0.2, 0.28), b.out);
+      thump(b, 0.08, 0.5, 0.25);
+    },
+  },
+
+  heal: {
+    level: 0.32,
+    build: (b) => {
+      // Warm major arpeggio with soft bell partials.
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        const at = i * 0.07;
+        link(tone(b, 'sine', f, at, 0.6), env(b, 0.25, 0.01, 0.05, 0.5, at), b.out);
+        link(tone(b, 'sine', f * 2.01, at, 0.3), env(b, 0.05, 0.005, 0, 0.25, at), b.out);
+      });
+    },
+  },
+
+  ward: {
+    level: 0.32,
+    build: (b) => {
+      // Shimmering hum that swells: a shield settling around someone.
+      const dur = 0.7;
+      for (const f of [330, 495, 660]) link(tone(b, 'triangle', f, 0, dur, f * 1.02), env(b, 0.16, 0.12, 0.1, 0.45), b.out);
+      link(noise(b, 'pink', dur), sweep(b, 'bandpass', 1800, 5200, dur, 3), env(b, 0.2, 0.1, 0.1, 0.45), b.out);
+    },
+  },
+
+  snare: {
+    level: 0.6,
+    build: (b) => {
+      // Rope whip-crack and the creak of the noose drawing tight.
+      crack(b, 0, 0.8);
+      link(noise(b, 'white', 0.08), sweep(b, 'bandpass', 5000, 1200, 0.07, 2), env(b, 0.7, 0.001, 0, 0.07), b.out);
+      link(tone(b, 'sawtooth', 140, 0.05, 0.35, 90), biquad(b, 'lowpass', 700, 4), env(b, 0.35, 0.02, 0.05, 0.25, 0.05), b.out);
+    },
+  },
+
+  hammer: {
+    level: 0.4,
+    build: (b) => {
+      // Mallet on timber and iron nail.
+      link(noise(b, 'brown', 0.08), biquad(b, 'lowpass', 900, 1), env(b, 0.9, 0.002, 0, 0.07), b.out);
+      link(tone(b, 'sine', 1750, 0, 0.18), env(b, 0.15, 0.001, 0, 0.16), b.out);
+      link(tone(b, 'sine', 2630, 0, 0.12), env(b, 0.07, 0.001, 0, 0.1), b.out);
+    },
+  },
+
+  coin: {
+    level: 0.35,
+    build: (b) => {
+      for (const [at, f] of [[0, 2093], [0.07, 2637], [0.12, 3136]] as const) {
+        link(tone(b, 'sine', f, at, 0.3), env(b, 0.22, 0.002, 0, 0.28, at), b.out);
+        link(tone(b, 'sine', f * 2.76, at, 0.12), env(b, 0.05, 0.002, 0, 0.1, at), b.out);
+      }
+    },
+  },
+
+  recall: {
+    level: 0.3,
+    build: (b) => {
+      // Hearth-call: a low drone opening into a rising choir-like fifth.
+      const dur = 1.6;
+      const lp = sweep(b, 'lowpass', 300, 2600, dur, 0.9);
+      link(lp, env(b, 0.6, 0.6, 0.4, 0.6), b.out);
+      for (const f of [130.81, 196.0, 261.63]) for (const det of [0.996, 1.004]) link(tone(b, 'sawtooth', f * det, 0, dur, f * det * 1.5), gain(b, 0.08), lp);
+    },
+  },
+
+  kill: {
+    level: 0.4,
+    build: (b) => {
+      // Low war-drum hit + a short horn stab: someone has fallen.
+      thump(b, 0, 1, 0.35);
+      link(noise(b, 'brown', 0.25), biquad(b, 'lowpass', 300, 1), env(b, 0.6, 0.004, 0, 0.22), b.out);
+      const lp = sweep(b, 'lowpass', 500, 1800, 0.25, 1);
+      link(lp, env(b, 0.4, 0.04, 0.12, 0.3, 0.05), b.out);
+      for (const f of [196, 293.66]) link(tone(b, 'sawtooth', f, 0.05, 0.5), gain(b, 0.12), lp);
+    },
+  },
+
+
   swing: {
     level: 0.5,
     build: (b) => {

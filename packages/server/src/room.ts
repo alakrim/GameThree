@@ -12,7 +12,15 @@ export class Room {
   readonly world: World;
   private peers = new Map<string, { peer: Peer; team: Team; cmdsThisTick: number }>();
 
-  constructor(readonly seed = 1337, teamSize = TEAM_SIZE) { this.world = new World({ seed, botsPerTeam: teamSize }); this.world.fillBots(); }
+  constructor(readonly seed = 1337, teamSize = TEAM_SIZE) {
+    this.world = new World({ seed, botsPerTeam: teamSize }); this.world.fillBots();
+    // Telemetry (TWIST_BULWARKS §14): one line per finished match; the full report is on world.lastSummary.
+    this.world.onMatchEnd = (s) => {
+      if (process.env.VITEST) return;
+      const heroes = s.heroes.map((h) => `${h.heroId}${h.bot ? '*' : ''}:${h.kills}/${h.deaths}/${h.assists}`).join(' ');
+      console.log(`[match] winner=${s.winner === 0 ? 'dawn' : 'dusk'} ${Math.round(s.seconds / 60)}min waves=${s.waves} leaks=${s.leakHp.join('/')} gate@${s.firstGateTowerAt ?? '-'}s ${heroes}`);
+    };
+  }
 
   get size() { return this.peers.size; }
 

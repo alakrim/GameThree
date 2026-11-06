@@ -116,14 +116,17 @@ describe('waves, sends and the economy', () => {
     expect(brutes[0]!.team).toBe(0);
     expect(brutes[0]!.lane).toBe('mid');
   });
-  it('waves grow stronger and bring a troll every 5th wave; heroes are paid income each wave', () => {
+  it('waves grow stronger and bring a troll every 5th wave from wave 10; heroes are paid income each wave', () => {
     const w = new World({ seed: 1337, minionWaves: true, structures: false });
     const h = heroAt(w, 'a', 0, -60, -60);
     const g0 = h.gold!;
     steps(w, TICK_RATE * (WAVES.first + WAVES.interval * 4) + 2);
     expect(w.wave).toBe(5);
-    expect([...w.entities.values()].some((e) => e.unit === 'troll')).toBe(true);
+    expect([...w.entities.values()].some((e) => e.unit === 'troll')).toBe(false); // first boss moved to wave 10
     expect(h.gold!).toBeGreaterThanOrEqual(g0 + ECON.baseIncome * 5);
+    steps(w, TICK_RATE * WAVES.interval * 5);
+    expect(w.wave).toBe(WAVES.bossFirst);
+    expect([...w.entities.values()].some((e) => e.unit === 'troll')).toBe(true);
   });
   it('bots fortify their lanes', () => {
     const w = new World({ seed: 9, botsPerTeam: 3 }); w.fillBots();

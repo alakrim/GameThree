@@ -13,6 +13,10 @@ export class ThirdPersonCamera {
   private pivotSm = new THREE.Vector3();
   private first = true;
   private lastThird = 4.2;
+  /** Trauma-style shake (0..1): offset ∝ trauma², decays over ~0.6 s. */
+  private trauma = 0; private shakeT = 0;
+  /** Camera orientation without shake — aiming uses this so shake never moves the reticle's target. */
+  readonly aimQuaternion = new THREE.Quaternion();
 
   constructor(private groundAt: (wx: number, wz: number) => number) {
     this.camera = new THREE.PerspectiveCamera(70, 1, 0.08, 1400);
@@ -25,6 +29,7 @@ export class ThirdPersonCamera {
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy, -1.25, 0.95);
   }
   zoom(delta: number) { this.boom = THREE.MathUtils.clamp(this.boom + delta, this.minBoom, this.maxBoom); if (this.boom < 0.6) this.boom = delta < 0 ? 0 : 0.6; }
+  shake(amount: number) { this.trauma = Math.min(1, this.trauma + amount); }
   toggleView() { if (this.boom < 0.6) this.boom = this.lastThird; else { this.lastThird = this.boom; this.boom = 0; } }
 
   resize(w: number, h: number) {
@@ -59,5 +64,12 @@ export class ThirdPersonCamera {
     this.camera.position.copy(this.pivotSm).add(off);
     if (this.boomSm < 0.6) this.camera.position.y = this.pivotSm.y + 0.06; // eye height in first person
     this.camera.quaternion.copy(q);
+    this.aimQuaternion.copy(q);
+    if (this.trauma > 0) {
+      this.shakeT += dt * 40;
+      const k = this.trauma * this.trauma, n = (o: number) => Math.sin(this.shakeT * 1.3 + o) * 0.6 + Math.sin(this.shakeT * 2.9 + o * 2) * 0.4;
+      this.camera.rotateZ(n(1) * 0.035 * k); this.camera.rotateX(n(2) * 0.025 * k); this.camera.rotateY(n(3) * 0.025 * k);
+      this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    }
   }
 }

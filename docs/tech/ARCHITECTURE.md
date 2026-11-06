@@ -41,20 +41,37 @@ offset, boom shortened by terrain collision. Movement is direct analog input rel
 ## Combat model (server-authoritative, twist-agnostic)
 
 - **Data-driven kits** (`shared/src/heroes.ts`): each hero = stats + basic attack + Q/E/R `AbilityDef`s. The sim
-  interprets five generic ability kinds — `dash`, `cone`, `projectile`, `groundAoe`, `selfAoe` — with optional damage,
-  stun, slow, ally haste and "stop on first hit". New heroes are mostly data.
+  interprets six generic ability kinds — `dash`, `cone`, `projectile`, `groundAoe`, `selfAoe`, `trap` — plus optional
+  modifiers: damage, stun, root, slow, ally haste, stop-on-first-hit, projectile `targets` (`enemy` / `ally` / `any`),
+  `heroOnly` (hooks), `pull` / `pullToCaster` (stun on arrival), `push`, `splashSlow`, `split` (forking arrows),
+  `pulses` (volleys), `heal`, `shield`, `allyHot`, `structureMul`, and basic-attack `reelEvery`. Five heroes ship
+  (Hrodvar, Sigrun, Hilde, Brynna, Halla) with no hero-specific code paths in the sim.
+- **Status system:** stun, root (no movement or dashes; attacks allowed), slow (60% stacking cap), haste, shield
+  (absorbs before HP, expires), heal-over-time, and **forced movement** (pulls, pushes, reels — the victim can't act;
+  walls and palisades stop it). Hard CC on heroes has **diminishing returns** (HEROES.md §6.4): 100%, then 50%, then
+  3 s immunity, inside a 6 s window. All of it is visible to clients as `st` bits (see `EntitySnapshot`).
 - **Actions**: `act {slot, aim, tx, ty}` is validated server-side (alive, not stunned/busy, cooldown ready, finite aim,
   ground target clamped to range), then runs a wind-up (telegraph) before resolving. Stuns interrupt wind-ups.
-- **Hit detection**: cones test range + half-angle; projectiles are swept per tick (no tunnelling) and hit the first
-  enemy; ground AoEs detonate after a delay with a broadcast telegraph.
+- **Hit detection**: cones test range + half-angle; projectiles are swept per tick (no tunnelling) and resolve every
+  candidate along the segment in order, so an `any` beam can heal an ally and burn an enemy in one tick; ground AoEs
+  detonate after a delay (or pulse) with a broadcast telegraph.
+- **Heroes vs structures** (TWIST_BULWARKS §9): area damage (ground/self AoE, splash, burns) deals 50% to structures;
+  enemy palisades absorb ground skillshots — hooks and ally threads stop on them; arcing volleys ignore walls;
+  heals never repair structures. Repairs are a separate, paid channel (below).
+- **Damage pipeline** (`World.damage`): structure rules → item modifiers (structure damage, armor) → shield absorb →
+  HP → combat timers, assist tracking, telemetry, lifesteal → death (kill credit, assists, bounties, XP).
 - **Structures**: 2 towers per lane per team + a Heartstone per fort. Towers prioritise minions, then heroes, and fire
   homing bolts. Inner towers are invulnerable until their lane's outer tower falls; the Heartstone until an inner
   tower falls. Destroying a Heartstone wins; the match resets after 12 s.
 - **Minions** aggro the nearest enemy (preferring minions/structures), leash back to their lane.
 - **Progression**: shared XP for nearby kills, levels 1–12 scaling HP/damage, respawn timer by level, fort regen.
-- **Bots** (`shared/src/bot.ts`) fill empty slots to 3v3. They issue the same commands as players (no special access):
-  follow their lane behind allied minions, avoid diving towers, use abilities, retreat to heal.
-- **Events** (`GameEvent` in snapshots): `act`, `hit`, `die`, `lvl`, `tele`, `aoe`, `pop`, `spawn`, `win`, `reset`.
+- **Bots** (`shared/src/bot.ts`) fill empty slots to 3v3 with a varied line-up (no duplicates per team). They issue
+  the same commands as players (no special access): follow their lane behind allied minions (a Mystic duos with the
+  team's ranged carry), avoid diving towers unless grouped, cast kit-aware (hooks only at heroes, heals and shields
+  onto hurt allies, rings when the team is hurt), retreat, recall to shop, buy a role build, repair, and from minute 12
+  — or once an enemy gate falls — group up and siege the weakest lane.
+- **Events** (`GameEvent` in snapshots): `act`, `hit`, `die`, `lvl`, `tele`, `aoe`, `pop`, `spawn`, `win`, `reset`,
+  plus `heal`, `shield`, `hook`, `snare`, `push`, `imm`, `buy`, `kill` (kill feed with assists) and `recall`.
   The client releases each event when interpolated render time reaches its tick, so VFX/SFX line up with motion;
   the local player's own actions play instantly on input.
 
@@ -75,6 +92,28 @@ Design: `docs/design/TWIST_BULWARKS.md`. Data: `shared/src/bulwarks.ts`. Logic: 
   no units in the footprint, within 14 m of the builder, gold, per-team cap. Refusals return a `deny` event with a reason.
 - **Economy:** passive gold, per-wave income (raised by sends), last-hit bounties (structures credit their owner),
   shared bounties otherwise. Leaks damage the Heartstone directly; heroes can hit it only after a gate tower falls.
+
+## Items, repair, recall (M1c)
+
+- **Items v0** (`shared/src/items.ts`, `docs/design/ITEMS.md`): nine passive items, four slots, bought and sold
+  (60%) only inside your own fort or while dead. Stats are summed once per change (`recalcHero`) into `ist` and read
+  in hot paths: max HP / attack damage, move speed (in `speedMul`, so prediction sees it via `sm`), cooldown reduction,
+  ability power, lifesteal, out-of-combat regen, structure damage, armor, repair speed.
+- **Repair:** `repair {id}` channels on a friendly bulwark within 4.5 m (not Caltrops, not gate towers): 7% max HP/s,
+  a full repair costs 45% of the gold invested. Moving, acting, stuns and hits from heroes or towers break it.
+- **Hearth Recall:** `recall` channels 4 s, then returns the hero to their spawn slot; moving, acting or any damage
+  cancels it. Spawn slots fan out on the gate side of the Heartstone.
+- **Structure caps:** 10 per hero and 40 per team, so a player joining a bot-filled match always has an allowance.
+
+## Telemetry & balance tooling
+
+- `shared/src/telemetry.ts` keeps a per-match ledger fed by the World (never read by the sim, so determinism is
+  untouched): per hero K/D/A, last hits, damage to heroes / units / structures, damage taken, healing, shielding,
+  hard CC dealt, gold earned and spent by category (build, upgrade, send, item, repair), structures built, items,
+  ability casts; per match leaks by unit/lane, Heartstone HP per minute, first gate tower, structures lost,
+  rejections by reason, sells, troll kills. `World.matchSummary()` reads it at any time; `onMatchEnd` fires once.
+- The server logs one line per finished match. `npm run balance -- [matches] [out.md] [capMinutes]` plays headless
+  3v3 bot matches with random rosters on all cores (worker threads) and writes `docs/balance/REPORT.md` + JSON.
 
 ## Netcode
 

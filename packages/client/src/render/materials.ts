@@ -28,7 +28,18 @@ export const Mats = {
   slate: (repeat = 1) => make(`slate${repeat}`, 'slate', { repeat, tint: 0xa4a29c, roughness: 1, normalScale: 1.4 }),
   cobble: (repeat = 1) => make(`cobble${repeat}`, 'cobble', { repeat, tint: 0xa8a49c, roughness: 1 }),
   rock: (repeat = 1) => make(`rock${repeat}`, 'rock', { repeat, roughness: 1, normalScale: 1.3 }),
+  skin: () => plain('skin', { color: 0xc89878, roughness: 0.8 }),
+  hair: () => plain('hair', { color: 0x8a5a2a, roughness: 0.9 }),
+  fletch: () => plain('fletch', { color: 0xd8d6cf, roughness: 1, side: THREE.DoubleSide }),
+  brass: () => make('brass', 'steel', { repeat: 1, metalness: 1, roughness: 0.45, tint: 0xd4a050 }),
 };
+
+/** Untextured shared material (small details where a texture would be sub-pixel anyway). */
+function plain(key: string, o: THREE.MeshStandardMaterialParameters) {
+  let m = lib.get(key);
+  if (!m) { m = new THREE.MeshStandardMaterial(o); lib.set(key, m); }
+  return m;
+}
 
 /** Planar world-space UVs for procedural meshes (so textures keep a constant texel density). */
 export function boxUV(geo: THREE.BufferGeometry, scale = 1): THREE.BufferGeometry {

@@ -14,7 +14,7 @@ export class TdHud {
   private banner: HTMLDivElement;
   buildOpen = false; tableOpen = false; selected: BulwarkType = 'arrow';
 
-  constructor(root: HTMLElement, touch: boolean, private cb: { build(type: BulwarkType): void; closeBuild(): void; send(unit: SendType, lane: string): void; toggleTable(open: boolean): void; place(): void; toggleBuild(): void }) {
+  constructor(root: HTMLElement, touch: boolean, private cb: { build(type: BulwarkType): void; closeBuild(): void; send(unit: SendType, lane: string): void; toggleTable(open: boolean): void; place(): void; toggleBuild(): void; shop(): void; recall(): void; repair(): void }) {
     const el = document.createElement('div'); el.className = 'td';
     el.innerHTML = `
       <div class="treasury"><span class="coin"></span><b class="g">0</b><small>+<span class="inc">40</span>/wave</small></div>
@@ -31,7 +31,7 @@ export class TdHud {
       <div class="tip"></div>
       <div class="toasts"></div>
       <div class="banner"></div>
-      <div class="tdbtns"><button class="tdb tb-build">BUILD</button><button class="tdb tb-send">SEND</button><button class="tdb tb-place">PLACE</button></div>`;
+      <div class="tdbtns"><button class="tdb tb-build">BUILD</button><button class="tdb tb-send">SEND</button><button class="tdb tb-shop">SHOP</button><button class="tdb tb-recall">HOME</button><button class="tdb tb-repair">REPAIR</button><button class="tdb tb-place">PLACE</button></div>`;
     root.appendChild(el);
     const q = <T extends HTMLElement>(s: string) => el.querySelector<T>(s)!;
     this.gold = q('.g'); this.income = q('.inc'); this.wave = q('.w'); this.waveT = q('.t');
@@ -45,6 +45,9 @@ export class TdHud {
     q('.tb-build').addEventListener('click', () => cb.toggleBuild());
     q('.tb-send').addEventListener('click', () => cb.toggleTable(!this.tableOpen));
     q('.tb-place').addEventListener('pointerdown', (e) => { e.stopPropagation(); cb.place(); });
+    q('.tb-shop').addEventListener('click', () => cb.shop());
+    q('.tb-recall').addEventListener('click', () => cb.recall());
+    q('.tb-repair').addEventListener('click', () => cb.repair());
     void this.heartsLbl;
   }
 

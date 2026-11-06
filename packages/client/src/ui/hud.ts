@@ -1,9 +1,22 @@
-import { HEROES, HERO_IDS, type HeroDef } from '@lumen/shared';
+import { HEROES, HERO_IDS, ITEMS, MAX_ITEMS, type HeroDef, type ItemId } from '@lumen/shared';
 import { PALETTE } from '../render/palette.js';
+import { icon } from './icons.js';
 
 export interface CompassMarker { yaw: number; color: string; label?: string }
 export interface HudStats { fps: number; ms: number; tier: string; mode: string; status: string; rtt: number; tick: number; ents: number; draws: number; tris: number }
-export interface HeroState { hpFrac: number; level: number; xp: number; cds: number[]; dead: boolean; respawn: number }
+export interface HeroState {
+  hpFrac: number; level: number; xp: number; cds: number[]; dead: boolean; respawn: number;
+  shieldFrac?: number; st?: number; items?: string[]; channel?: { label: string; p: number } | null;
+}
+export interface PartyMember { id: number; name: string; heroId: string; hpFrac: number; level: number; dead: boolean; respawn: number; me: boolean }
+export interface BoardRow { name: string; heroId: string; team: 0 | 1; level: number; k: number; d: number; items: string[]; me: boolean; dead: boolean }
+
+/** Status bit → chip (icon, label, css class). Order = display priority. */
+const CHIPS: [number, string, string, string][] = [
+  [1, 'stun', 'Stunned', 'bad'], [64, 'root', 'Rooted', 'bad'], [512, 'stun', 'Displaced', 'bad'], [2, 'slow', 'Slowed', 'bad'],
+  [128, 'shield', 'Shielded', 'good'], [256, 'heal', 'Mending', 'good'], [8, 'haste', 'Hasted', 'good'], [2048, 'immune', 'CC immune', 'neutral'],
+  [1024, 'repair', 'Repairing', 'neutral'], [8192, 'recall', 'Recalling', 'neutral'],
+];
 
 const KEYS = ['LMB', 'Q', 'E', 'R'];
 
@@ -18,6 +31,9 @@ export class Hud {
   private root: HTMLElement;
   private dmgPool: HTMLDivElement[] = [];
   private floating: { el: HTMLDivElement; x: number; y: number; z: number; t: number }[] = [];
+  private shieldEl: HTMLElement; private chips: HTMLDivElement; private itemsEl: HTMLDivElement; private channel: HTMLDivElement;
+  private partyEl: HTMLDivElement; private feed: HTMLDivElement; private boardEl: HTMLDivElement;
+  private lastSt = -1; private lastItems = '';
 
   constructor(root: HTMLElement, readonly touch: boolean, hero: HeroDef, actions: { view(): void; act(slot: number, phase: 'down' | 'up'): void }) {
     this.root = root;
@@ -25,13 +41,19 @@ export class Hud {
     root.innerHTML = `
       <div class="compass"></div>
       <div class="reticle"></div>
-      <div class="abilities">${names.map((n, i) => `<div class="ab${i === 3 ? ' ult' : ''}"><span class="key">${KEYS[i]}</span><span class="nm">${n}</span><div class="cd"></div></div>`).join('')}</div>
+      <div class="abilities">${names.map((n, i) => `<div class="ab${i === 3 ? ' ult' : ''}" title="${i === 0 ? 'Basic attack' : esc(hero.abilities[i - 1]!.desc ?? '')}"><span class="key">${KEYS[i]}</span><span class="nm">${n}</span><div class="cd"></div></div>`).join('')}
+        <div class="items">${Array.from({ length: MAX_ITEMS }, () => '<div class="islot"></div>').join('')}</div></div>
       <div class="level"><span>1</span></div>
-      <div class="vitals"><div class="bar"><i></i></div><div class="xp"><i></i></div><span class="bar-label">${hero.name} · ${hero.role}</span></div>
+      <div class="chips"></div>
+      <div class="channel"><span></span><div><i></i></div></div>
+      <div class="vitals"><div class="bar"><i></i><s></s></div><div class="xp"><i></i></div><span class="bar-label">${hero.name} · ${hero.role}</span></div>
+      <div class="party"></div>
+      <div class="feed"></div>
+      <div class="board"></div>
       <div class="stats"></div>
       <div class="overlay-msg"><h2></h2><p></p></div>
       <div class="prompt">${touch ? 'Left thumb: move · Right thumb: look' : 'Click to take control'}</div>
-      <div class="help">${touch ? '' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>LMB</kbd> attack &nbsp; <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd> abilities &nbsp; <kbd>B</kbd>/<kbd>1-5</kbd> build &nbsp; <kbd>G</kbd> war table &nbsp; <kbd>Wheel</kbd> zoom &nbsp; <kbd>V</kbd> view &nbsp; <kbd>Esc</kbd> release'}</div>
+      <div class="help">${touch ? '' : '<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp; <kbd>LMB</kbd> attack &nbsp; <kbd>Q</kbd><kbd>E</kbd><kbd>R</kbd> abilities &nbsp; <kbd>B</kbd>/<kbd>1-5</kbd> build &nbsp; <kbd>G</kbd> war table &nbsp; <kbd>F</kbd> repair &nbsp; <kbd>P</kbd> shop &nbsp; <kbd>H</kbd> recall &nbsp; <kbd>Tab</kbd> scores &nbsp; <kbd>Wheel</kbd> zoom &nbsp; <kbd>V</kbd> view &nbsp; <kbd>Esc</kbd> release'}</div>
       <div class="tbtns"></div>
       <button class="btn">VIEW</button>`;
     this.compass = root.querySelector('.compass')!;
@@ -43,6 +65,8 @@ export class Hud {
     this.stats = root.querySelector('.stats')!; this.prompt = root.querySelector('.prompt')!; this.help = root.querySelector('.help')!;
     this.msg = root.querySelector('.overlay-msg')!;
     this.abCd = [...root.querySelectorAll<HTMLElement>('.ab .cd')];
+    this.shieldEl = root.querySelector('.bar > s')!; this.chips = root.querySelector('.chips')!; this.itemsEl = root.querySelector('.items')!;
+    this.channel = root.querySelector('.channel')!; this.partyEl = root.querySelector('.party')!; this.feed = root.querySelector('.feed')!; this.boardEl = root.querySelector('.board')!;
     root.querySelector('.btn')!.addEventListener('click', actions.view);
     // Touch: attack + abilities on a right-thumb arc.
     const tb = root.querySelector('.tbtns')!;
@@ -78,7 +102,26 @@ export class Hud {
     };
     for (const t of this.ticks) place(t.el, t.yaw);
     for (const m of this.marks) place(m, m.yaw);
-    this.hp.style.width = `${Math.max(0, Math.min(1, s.hpFrac)) * 100}%`;
+    // Health with the shield appended (compressed when HP + shield exceed max).
+    const sh = Math.max(0, s.shieldFrac ?? 0), scale = Math.max(1, s.hpFrac + sh);
+    this.hp.style.width = `${(Math.max(0, Math.min(1, s.hpFrac)) / scale) * 100}%`;
+    this.shieldEl.style.left = this.hp.style.width; this.shieldEl.style.width = `${(sh / scale) * 100}%`;
+    const st = s.st ?? 0;
+    if (st !== this.lastSt) {
+      this.lastSt = st;
+      this.chips.innerHTML = CHIPS.filter(([bit]) => st & bit && !(st & 4)).slice(0, 5).map(([, ic, label, cls]) => `<span class="chip ${cls}">${icon(ic, 14)}${label}</span>`).join('');
+    }
+    const items = (s.items ?? []).join(',');
+    if (items !== this.lastItems) {
+      this.lastItems = items;
+      [...this.itemsEl.children].forEach((el, i) => {
+        const id = s.items?.[i] as ItemId | undefined;
+        el.innerHTML = id ? icon(id, 22) : ''; (el as HTMLElement).title = id ? `${ITEMS[id].name} — ${ITEMS[id].blurb}` : 'Empty slot (P: shop at your fort)';
+        el.classList.toggle('full', !!id);
+      });
+    }
+    if (s.channel) { this.channel.classList.add('show'); this.channel.querySelector('span')!.textContent = s.channel.label; (this.channel.querySelector('i') as HTMLElement).style.width = `${Math.min(1, s.channel.p) * 100}%`; }
+    else this.channel.classList.remove('show');
     this.xp.style.width = `${Math.max(0, Math.min(1, s.xp)) * 100}%`;
     this.lvl.textContent = String(s.level);
     s.cds.forEach((c, i) => {
@@ -96,8 +139,46 @@ export class Hud {
   }
   clearMessage() { this.msg.classList.remove('show'); }
 
+  /** Allied hero frames (left edge): portrait glyph, level, HP, respawn timer. */
+  setParty(list: PartyMember[]) {
+    if (this.partyEl.children.length !== list.length) {
+      this.partyEl.innerHTML = list.map(() => '<div class="pm"><span class="pg"></span><div class="pi"><b></b><div class="pb"><i></i></div></div><span class="pl"></span></div>').join('');
+    }
+    list.forEach((m, i) => {
+      const el = this.partyEl.children[i] as HTMLElement;
+      const key = `${m.heroId}|${m.name}|${m.me}`;
+      if (el.dataset.k !== key) {
+        el.dataset.k = key;
+        el.querySelector('.pg')!.innerHTML = icon(HEROES[m.heroId]?.role ?? 'Warden', 16);
+        el.querySelector('b')!.textContent = `${HEROES[m.heroId]?.name ?? m.heroId}${m.me ? ' (you)' : ''}`;
+        el.classList.toggle('me', m.me);
+      }
+      (el.querySelector('.pb > i') as HTMLElement).style.width = `${Math.max(0, m.hpFrac) * 100}%`;
+      el.querySelector('.pl')!.textContent = m.dead ? `${m.respawn}s` : String(m.level);
+      el.classList.toggle('dead', m.dead);
+    });
+  }
+
+  /** Kill feed line: killer → victim (ally names in team colour, enemies hostile). */
+  killFeed(killer: { name: string; ally: boolean } | null, victim: { name: string; ally: boolean }, assists: number) {
+    const el = document.createElement('div'); el.className = 'kf';
+    const nm = (x: { name: string; ally: boolean }) => `<b class="${x.ally ? 'al' : 'en'}">${esc(x.name)}</b>`;
+    el.innerHTML = killer ? `${nm(killer)}<span class="kx">${icon('Warden', 14)}</span>${nm(victim)}${assists ? `<small>+${assists}</small>` : ''}` : `${nm(victim)} <small>fell</small>`;
+    this.feed.prepend(el);
+    while (this.feed.children.length > 5) this.feed.lastChild!.remove();
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 600); }, 7000);
+  }
+
+  /** Scoreboard (hold Tab). */
+  setBoard(show: boolean, rows: BoardRow[] = [], meta = '') {
+    this.boardEl.classList.toggle('show', show);
+    if (!show) return;
+    const side = (t: 0 | 1) => rows.filter((r) => r.team === t).map((r) => `<tr class="${r.me ? 'me' : ''}${r.dead ? ' dead' : ''}"><td>${icon(HEROES[r.heroId]?.role ?? 'Warden', 15)}</td><td>${HEROES[r.heroId]?.name ?? r.heroId}<small>${esc(r.name)}</small></td><td>${r.level}</td><td>${r.k} / ${r.d}</td><td class="its">${r.items.map((i) => icon(i, 16)).join('')}</td></tr>`).join('');
+    this.boardEl.innerHTML = `<h3>Skarnveld · ${esc(meta)}</h3>${[0, 1].map((t) => `<table><thead><tr><th colspan="2">${t === 0 ? 'Dawn clan' : 'Dusk clan'}</th><th>Lv</th><th>K / D</th><th>Gear</th></tr></thead><tbody>${side(t as 0 | 1)}</tbody></table>`).join('')}`;
+  }
+
   /** Floating combat text anchored to a world position (projected each frame by `project`). */
-  damage(x: number, y: number, z: number, n: number, cls: '' | 'ab' | 'taken' | 'heal' = '') {
+  damage(x: number, y: number, z: number, n: number | string, cls: '' | 'abl' | 'taken' | 'heal' | 'shield' | 'info' = '') {
     const el = this.dmgPool.pop() ?? Object.assign(document.createElement('div'), { className: 'dmg' });
     el.className = `dmg ${cls}`; el.textContent = String(n); el.style.opacity = '1';
     this.root.appendChild(el);
@@ -119,6 +200,8 @@ export class Hud {
   }
 }
 
+const esc = (t: string) => t.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
 export const markerColors = { ally: (t: 0 | 1) => `#${(t === 0 ? PALETTE.dawn : PALETTE.dusk).toString(16).padStart(6, '0')}`, enemy: `#${PALETTE.hostile.toString(16)}` };
 
 export class LoadingScreen {
@@ -139,9 +222,13 @@ export function pickHero(initial: string): Promise<string> {
     let sel = HEROES[initial] ? initial : HERO_IDS[0]!;
     const el = document.createElement('div'); el.className = 'picker';
     const keys = ['Q', 'E', 'R'];
-    el.innerHTML = `<div><h1>Choose your champion</h1><p>3 v 3 · Skarnveld</p><div class="cards">${HERO_IDS.map((id) => {
+    const pips = (d: number) => [1, 2, 3].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('');
+    el.innerHTML = `<div class="pk"><h1>Choose your champion</h1><p>3 v 3 · Skarnveld · Bulwarks</p><div class="cards">${HERO_IDS.map((id) => {
       const h = HEROES[id]!;
-      return `<button class="card${id === sel ? ' sel' : ''}" data-id="${id}"><span class="t">${h.role}</span><h3>${h.name}</h3><span class="t">${h.title}</span><p>${h.blurb}</p><ul>${h.abilities.map((a, i) => `<li><b>${keys[i]}</b>${a.name}</li>`).join('')}</ul></button>`;
+      return `<button class="card${id === sel ? ' sel' : ''}" data-id="${id}">
+        <div class="ch"><span class="role">${icon(h.role, 18)}${h.role}</span><span class="diff" title="Difficulty ${h.difficulty}">${pips(h.difficulty)}</span></div>
+        <h3>${h.name}</h3><span class="t">${h.title}</span><p>${h.blurb}</p>
+        <ul>${h.abilities.map((a, i) => `<li><b>${keys[i]}</b><span><em>${a.name}</em>${a.desc ? ` — ${a.desc}` : ''}</span></li>`).join('')}</ul></button>`;
     }).join('')}</div><button class="go">Enter the valley</button></div>`;
     document.body.appendChild(el);
     el.querySelectorAll<HTMLButtonElement>('.card').forEach((c) => c.addEventListener('click', () => {

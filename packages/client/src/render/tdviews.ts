@@ -100,3 +100,35 @@ export class WolfView {
   }
   setDead(v: boolean) { if (v && this.dead < 0) this.dead = 0; }
 }
+
+/** Hilde's Cairn Snare: three stacked stones, two stakes and a rope noose; a faint ring glows once armed. */
+export class TrapView {
+  readonly root = new THREE.Group();
+  private ring: THREE.Mesh;
+  private rope: THREE.Mesh;
+  private t = 0;
+  constructor(readonly id: number, readonly team: 0 | 1, ally: boolean, radius: number) {
+    const stone = new THREE.MeshStandardMaterial({ color: 0x8c8a84, roughness: 1 });
+    [[0.22, 0.12], [0.16, 0.3], [0.1, 0.43]].forEach(([r, y], i) => {
+      const m = new THREE.Mesh(new THREE.DodecahedronGeometry(r!, 0).scale(1, 0.62, 1), stone);
+      m.position.set(radius * 0.95 + (i % 2) * 0.04, y!, 0); m.rotation.y = i * 1.3; m.castShadow = true; this.root.add(m);
+    });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x5a3e28, roughness: 1 });
+    for (const a of [2.3, 4.0]) {
+      const st = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.035, 0.45, 5).translate(0, 0.18, 0), wood);
+      st.position.set(Math.cos(a) * radius * 0.9, 0, Math.sin(a) * radius * 0.9); st.rotation.z = 0.2; st.castShadow = true; this.root.add(st);
+    }
+    this.rope = new THREE.Mesh(new THREE.TorusGeometry(radius * 0.75, 0.03, 5, 28).rotateX(Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xb8a27a, roughness: 1 }));
+    this.rope.position.y = 0.05; this.root.add(this.rope);
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(radius * 0.92, radius, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: ally ? teamColor(team) : PALETTE.hostile, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
+    this.ring.position.y = 0.08; this.root.add(this.ring);
+  }
+  place(x: number, y: number, ground: number, armed: boolean, dt: number) {
+    this.root.position.copy(toWorld(x, y, ground));
+    this.t += dt;
+    const mat = this.ring.material as THREE.MeshBasicMaterial;
+    mat.opacity = armed ? 0.28 + Math.sin(this.t * 2.5) * 0.12 : Math.min(0.6, this.t * 1.2);
+    this.rope.scale.setScalar(armed ? 1 : 0.6 + Math.min(0.4, this.t * 0.8));
+  }
+}
