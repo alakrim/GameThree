@@ -141,11 +141,10 @@ export async function buildProps(map: MapDef, q: QualitySettings): Promise<Props
     // Standing-stone circle: photoscanned boulders stretched upright into weathered menhirs.
     for (let k = 0; k < 7; k++) {
       const a = (k / 7) * Math.PI * 2 + 0.3;
-      const r = rocksLod[k % 2 ? 2 : 3]!;
-      const src = q.tier === 'low' ? r : rocks[k % 2 ? 2 : 3]!;
+      const src = (q.tier === 'low' ? rocksLod : rocks)[k % 2]!; // rounder mossy boulders read as stone at any LOD
       const s = new THREE.Mesh(src.geometry, src.material);
       const h = rng.range(2.6, 3.8);
-      s.scale.set(1.1, h / src.height, 0.8);
+      s.scale.set(1.3, h / src.height, 1.1);
       s.position.set(Math.cos(a) * 6.5, -0.25, Math.sin(a) * 6.5);
       s.rotation.set(rng.range(-0.05, 0.05), -a, rng.range(-0.07, 0.07));
       s.castShadow = q.shadows; s.receiveShadow = true;

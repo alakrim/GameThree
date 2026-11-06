@@ -154,7 +154,7 @@ async function boot() {
   await renderer.compileAsync(scene, cam.camera);
   loading.progress(1); loading.done();
   requestAnimationFrame(frame);
-  (window as unknown as { __lumen: unknown }).__lumen = { views, cam, predictor, get tick() { return lastTick; }, transport, renderer, setDebugView: (v: typeof debugView) => { debugView = v; } };
+  (window as unknown as { __lumen: unknown }).__lumen = { views, cam, predictor, interp, get me() { return me; }, get tick() { return lastTick; }, transport, renderer, setDebugView: (v: typeof debugView) => { debugView = v; } };
 }
 
 boot().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', `<pre style="position:fixed;inset:20px;color:#f88;white-space:pre-wrap">${String(e?.stack ?? e)}</pre>`); });
